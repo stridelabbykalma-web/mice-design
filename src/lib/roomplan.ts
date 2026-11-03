@@ -3,7 +3,7 @@
 // MICE Design: medidas, altura, puertas, ventanas y tabiques para salas con forma en L.
 
 import type { Item } from '../types';
-import { snapToWall } from './geometry';
+import { normalizeOutline, snapToRoomWall, type P2 } from './outline';
 import { uid } from './db';
 
 interface RPSurface {
@@ -22,6 +22,8 @@ export interface RoomPlanFile {
 }
 
 export interface RoomPlanResult {
+  /** Contorno real de la sala si no es un rectángulo. */
+  outline?: P2[];
   width: number;
   depth: number;
   height: number;
@@ -71,6 +73,17 @@ export function parseRoomPlan(json: unknown): RoomPlanResult {
   // RoomPlan mide desde su origen; el suelo es la base más baja de las paredes.
   const floorY = Math.min(...f.walls.map((w) => pos(w.transform).y - w.dimensions[1] / 2));
 
+  // 3. Contorno: se encadenan las paredes por sus extremos. Si cierran, esa es la forma real.
+  const chain = chainWalls(segs);
+  let outline: P2[] | undefined;
+  if (chain && chain.length >= 3) {
+    const centered = chain.map((p) => ({ x: p.x - cx, z: p.z - cz }));
+    const isRect =
+      centered.length === 4 &&
+      centered.every((p) => Math.abs(Math.abs(p.x) - (maxX - minX) / 2) < 0.15 && Math.abs(Math.abs(p.z) - (maxZ - minZ) / 2) < 0.15);
+    if (!isRect) outline = normalizeOutline(centered).outline;
+  }
+
   const local = (t: number[]) => {
     const p = pos(t);
     const r = rot(p.x, p.z);
@@ -89,7 +102,7 @@ export function parseRoomPlan(json: unknown): RoomPlanResult {
     (Math.abs(g.a.z - maxZ) < tol && Math.abs(g.b.z - maxZ) < tol);
   let inner = 0;
   for (const g of segs) {
-    if (onEdge(g)) continue;
+    if (outline || onEdge(g)) continue;
     inner++;
     const mx = (g.a.x + g.b.x) / 2 - cx;
     const mz = (g.a.z + g.b.z) / 2 - cz;
@@ -104,7 +117,7 @@ export function parseRoomPlan(json: unknown): RoomPlanResult {
       const w = r2(sf.dimensions[0]);
       const h = r2(sf.dimensions[1]);
       const depthItem = type === 'ventana' ? 0.08 : 0.12;
-      const snap = snapToWall(p.x, p.z, width, depth, depthItem);
+      const snap = snapToRoomWall(p.x, p.z, { width, depth, outline } as Parameters<typeof snapToRoomWall>[2], depthItem);
       const it: Item = { id: uid('i_'), type, x: r2(snap.x), z: r2(snap.z), rot: snap.rot, w, h };
       // Las ventanas se dibujan desde 1 m de altura; se ajusta con su altura real de alféizar.
       if (type === 'ventana') it.y = r2(p.y - h / 2 - 1.0);
@@ -120,7 +133,42 @@ export function parseRoomPlan(json: unknown): RoomPlanResult {
   const fm = (v: number) => r2(v).toString().replace('.', ',');
   const summary =
     `Sala de ${fm(width)} × ${fm(depth)} m y ${fm(height)} m de altura · ${f.walls.length} paredes, ${nd} puertas o huecos, ${nw} ventanas` +
+    (outline ? ` · sala de ${outline.length} lados` : '') +
     (inner ? ` · ${inner} tramos interiores añadidos como tabiques` : '') +
     '. Revisa qué puertas son salidas de emergencia.';
-  return { width: r2(width), depth: r2(depth), height: r2(height), items, summary };
+  return { outline, width: r2(width), depth: r2(depth), height: r2(height), items, summary };
+}
+
+/** Encadena tramos de pared por sus extremos; devuelve las esquinas si forman un contorno cerrado. */
+function chainWalls(segs: { a: P2; b: P2 }[], tol = 0.35): P2[] | null {
+  if (segs.length < 3) return null;
+  const used = new Set<number>([0]);
+  const pts: P2[] = [segs[0].a];
+  let end = segs[0].b;
+  const near = (p: P2, q: P2) => Math.hypot(p.x - q.x, p.z - q.z) < tol;
+  while (used.size < segs.length) {
+    let found = -1;
+    let next: P2 | null = null;
+    for (let i = 0; i < segs.length; i++) {
+      if (used.has(i)) continue;
+      if (near(segs[i].a, end)) {
+        found = i;
+        next = segs[i].b;
+        break;
+      }
+      if (near(segs[i].b, end)) {
+        found = i;
+        next = segs[i].a;
+        break;
+      }
+    }
+    if (found < 0 || !next) break;
+    pts.push({ x: (end.x + (near(segs[found].a, end) ? segs[found].a.x : segs[found].b.x)) / 2, z: (end.z + (near(segs[found].a, end) ? segs[found].a.z : segs[found].b.z)) / 2 });
+    used.add(found);
+    end = next;
+  }
+  // Solo se acepta si se han usado todas las paredes y el último extremo vuelve al primero
+  if (used.size !== segs.length || !near(end, segs[0].a)) return null;
+  pts[0] = { x: (pts[0].x + end.x) / 2, z: (pts[0].z + end.z) / 2 };
+  return pts;
 }

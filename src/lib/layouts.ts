@@ -4,7 +4,8 @@
 
 import type { Item, LayoutType, Project } from '../types';
 import { findDef, footprint, itemDims } from '../catalog';
-import { OBB, insideRoom, obbOverlap } from './geometry';
+import { OBB, obbOverlap } from './geometry';
+import { insideSpace } from './outline';
 import { exitClearance, isExit } from './safety';
 
 export interface LayoutOptions {
@@ -96,7 +97,7 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
     }
   }
 
-  const fits = (b: OBB) => insideRoom(b, W, D, o.margin * 0.5) && !obstacles.some((ob) => obbOverlap(ob, b));
+  const fits = (b: OBB) => insideSpace(b, space, o.margin * 0.5) && !obstacles.some((ob) => obbOverlap(ob, b));
   const back = D / 2 - o.margin;
   const left = -W / 2 + o.margin;
   const right = W / 2 - o.margin;
@@ -154,24 +155,40 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
       const chairs = td?.chairs ?? 10;
       const size = (td?.w ?? 1.8) + 1.0; // mesa + sillas
       const pitch = size + 0.9; // pasillo de servicio entre sillas
-      const pitchZ = o.staggered ? pitch * 0.87 : pitch;
-      const cand: { x: number; z: number }[] = [];
-      let row = 0;
-      for (let z = front + size / 2; z + size / 2 <= back + 1e-6; z += pitchZ, row++) {
-        const shift = o.staggered && row % 2 ? pitch / 2 : 0;
-        const n = Math.floor((right - left - size) / pitch) + 1;
-        const total = (n - 1) * pitch;
-        for (let k = 0; k < n; k++) {
-          const x = -total / 2 + k * pitch + shift;
-          if (x + size / 2 > right + 1e-6) continue;
-          cand.push({ x, z });
+      // Se prueban varios desplazamientos de la cuadrícula (útil en salas con forma o con
+      // columnas) y se elige el que más personas acomoda.
+      const tryGrid = (ox: number, oz: number, staggered: boolean) => {
+        const pitchZ = staggered ? pitch * 0.87 : pitch;
+        const cand: { x: number; z: number }[] = [];
+        let row = 0;
+        for (let z = front + size / 2 + oz; z + size / 2 <= back + 1e-6; z += pitchZ, row++) {
+          const shift = staggered && row % 2 ? pitch / 2 : 0;
+          const n = Math.floor((right - left - size) / pitch) + 2;
+          const total = (n - 1) * pitch;
+          for (let k = -1; k < n; k++) {
+            const x = -total / 2 + k * pitch + shift + ox;
+            if (x - size / 2 < left - 1e-6 || x + size / 2 > right + 1e-6) continue;
+            cand.push({ x, z });
+          }
         }
-      }
-      // Rellenamos de delante hacia atrás y del centro hacia los lados
-      cand.sort((a, b) => a.z - b.z || Math.abs(a.x) - Math.abs(b.x));
-      for (const c of cand) {
-        if (pax >= target) break;
-        if (!fits({ x: c.x, z: c.z, w: size, d: size, rot: 0 })) continue;
+        // De delante hacia atrás y del centro hacia los lados
+        cand.sort((a, b) => a.z - b.z || Math.abs(a.x) - Math.abs(b.x));
+        const placed: { x: number; z: number }[] = [];
+        for (const c of cand) {
+          if (placed.length * chairs >= target) break;
+          if (fits({ x: c.x, z: c.z, w: size, d: size, rot: 0 })) placed.push(c);
+        }
+        return placed;
+      };
+      let best: { x: number; z: number }[] = [];
+      for (const st of o.staggered ? [true, false] : [false])
+        for (let i = 0; i < 4; i++)
+          for (let j = 0; j < 3; j++) {
+            const r = tryGrid((i * pitch) / 4, (j * pitch) / 6, st);
+            if (r.length > best.length) best = r;
+            if (best.length * chairs >= target) break;
+          }
+      for (const c of best) {
         out.push({ type: o.tableType, x: c.x, z: c.z, rot: 0, chairs, chairType: o.chairType, centerpiece: true });
         pax += chairs;
       }
@@ -188,12 +205,18 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
         out.push(bar);
         obstacles.push(barBox);
       }
-      const cand: { x: number; z: number }[] = [];
-      for (let z = front + 0.8; z <= back - 0.3; z += pitch)
-        for (let x = left + 0.8; x <= right - 0.3; x += pitch) cand.push({ x, z });
-      for (const c of cand) {
-        if (pax >= target) break;
-        if (!fits({ x: c.x, z: c.z, w: 1.2, d: 1.2, rot: 0 })) continue;
+      let best: { x: number; z: number }[] = [];
+      for (let i = 0; i < 3; i++)
+        for (let j = 0; j < 3; j++) {
+          const placed: { x: number; z: number }[] = [];
+          for (let z = front + 0.8 + (j * pitch) / 3; z <= back - 0.3; z += pitch)
+            for (let x = left + 0.8 + (i * pitch) / 3; x <= right - 0.3; x += pitch) {
+              if (placed.length * per >= target) break;
+              if (fits({ x, z, w: 1.2, d: 1.2, rot: 0 })) placed.push({ x, z });
+            }
+          if (placed.length > best.length) best = placed;
+        }
+      for (const c of best) {
         out.push({ type: o.tableType, x: c.x, z: c.z, rot: 0 });
         pax += per;
       }

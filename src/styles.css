@@ -1705,3 +1705,23 @@ table.budget {
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+.vertex-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.vertex-table td,
+.vertex-table th {
+  padding: 2px 3px;
+  text-align: left;
+}
+.vertex-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.shape-editor .row {
+  margin: 8px 0;
+}

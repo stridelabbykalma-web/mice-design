@@ -62,6 +62,10 @@ export interface Space {
   underlay?: Underlay;
   model?: ImportedModel;
   wallPhotos?: Partial<Record<WallSide, PhotoTexture>>;
+  /** Contorno de la sala si no es rectangular (metros, centrado en el origen). */
+  outline?: { x: number; z: number }[];
+  /** Fotos de pared por tramo del contorno ('e0', 'e1'…) en salas no rectangulares. */
+  edgePhotos?: Record<string, PhotoTexture>;
   floorPhoto?: PhotoTexture;
   ceilingPhoto?: PhotoTexture;
   videoAssetId?: string;
@@ -177,7 +181,7 @@ export interface Project {
 }
 
 export type ViewMode = '3d' | 'planta' | 'paseo';
-export type Tool = 'select' | 'place' | 'measure' | 'eyedropper';
+export type Tool = 'select' | 'place' | 'measure' | 'eyedropper' | 'outline';
 
 /** Pieza de una mesa decorada, en coordenadas locales de la mesa. */
 export type TemplateDecor = Omit<Item, 'id' | 'x' | 'z' | 'rot'> & { dx: number; dz: number; drot: number };

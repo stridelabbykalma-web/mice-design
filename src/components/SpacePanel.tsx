@@ -7,6 +7,7 @@ import { loadGltf } from './Furniture';
 import { requestRectify } from './Rectify';
 import { openPhotoMeasure } from './PhotoMeasure';
 import { parseRoomPlan } from '../lib/roomplan';
+import { presetOutline, roomArea } from '../lib/outline';
 import { useLibrary } from '../lib/library';
 import { roomTemplateOf } from '../lib/rooms';
 import { geocode, satelliteImage, SAT_ATTRIBUTION } from '../lib/satellite';
@@ -60,15 +61,28 @@ export default function SpacePanel() {
         </Field>
         <div className="grid3">
           <Field label="Ancho (X)">
-            <NumberInput value={space.width} min={2} max={300} onChange={(width) => updateSpace({ width })} suffix="m" />
+            <NumberInput
+              value={space.width}
+              min={2}
+              max={300}
+              onChange={(width) => updateSpace({ width, outline: space.outline?.map((p) => ({ x: (p.x * width) / space.width, z: p.z })) })}
+              suffix="m"
+            />
           </Field>
           <Field label="Fondo (Z)">
-            <NumberInput value={space.depth} min={2} max={300} onChange={(depth) => updateSpace({ depth })} suffix="m" />
+            <NumberInput
+              value={space.depth}
+              min={2}
+              max={300}
+              onChange={(depth) => updateSpace({ depth, outline: space.outline?.map((p) => ({ x: p.x, z: (p.z * depth) / space.depth })) })}
+              suffix="m"
+            />
           </Field>
           <Field label="Altura">
             <NumberInput value={space.height} min={2} max={30} onChange={(height) => updateSpace({ height })} suffix="m" />
           </Field>
         </div>
+        {!space.outdoor && <ShapeEditor />}
         <SaveRoom />
         <RoomPlanImport />
         <div className="callout">
@@ -86,7 +100,7 @@ export default function SpacePanel() {
           </div>
         </div>
         <p className="hint">
-          Superficie: <strong>{m(space.width * space.depth, 1)} m²</strong>. El frente del espacio (escenario, pantalla) se sitúa en la pared superior de la vista en planta.
+          Superficie: <strong>{m(roomArea(space), 1)} m²</strong>. El frente del espacio (escenario, pantalla) se sitúa en la pared superior de la vista en planta.
         </p>
         <div className="row gap wrap">
           <Toggle checked={space.outdoor} onChange={(outdoor) => updateSpace({ outdoor, showWalls: !outdoor })} label="Espacio exterior" />
@@ -511,7 +525,8 @@ export function VideoReference() {
   );
 }
 
-type Surface = WallSide | 'suelo' | 'techo';
+/** Pared por lado (sala rectangular), tramo 'e0', 'e1'… (sala con forma), suelo o techo. */
+type Surface = string;
 
 const SURFACES: { id: Surface; label: string; help: string }[] = [
   { id: 'norte', label: 'Pared del frente', help: 'La pared del escenario o la pantalla (arriba en la vista en planta).' },
@@ -534,13 +549,28 @@ function RealSurfaces() {
   const [busy, setBusy] = useState<Surface | null>(null);
   if (space.outdoor) return null;
 
-  const has = (id: Surface) => (id === 'suelo' ? !!space.floorPhoto : id === 'techo' ? !!space.ceilingPhoto : !!space.wallPhotos?.[id]);
-  const done = SURFACES.filter((x) => has(x.id)).length;
+  const poly = space.outline && space.outline.length >= 3 ? space.outline : null;
+  const edgeLen = (i: number) => {
+    const a = poly![i];
+    const b = poly![(i + 1) % poly!.length];
+    return Math.hypot(b.x - a.x, b.z - a.z);
+  };
+  // En salas con forma, una entrada por cada tramo de pared
+  const list = poly
+    ? [
+        ...poly.map((_, i) => ({ id: `e${i}`, label: `Pared ${i + 1} (${m(edgeLen(i), 1)} m)`, help: 'Tramo de pared numerado en la vista en planta.' })),
+        ...SURFACES.filter((x) => x.id === 'suelo' || x.id === 'techo'),
+      ]
+    : SURFACES;
+  const isEdge = (id: Surface) => /^e\d+$/.test(id);
+  const has = (id: Surface) =>
+    id === 'suelo' ? !!space.floorPhoto : id === 'techo' ? !!space.ceilingPhoto : isEdge(id) ? !!space.edgePhotos?.[id] : !!space.wallPhotos?.[id as WallSide];
+  const done = list.filter((x) => has(x.id)).length;
 
   const capture = async (id: Surface, f: File) => {
     setBusy(id);
-    const len = id === 'norte' || id === 'sur' ? space.width : space.depth;
-    const sf = SURFACES.find((x) => x.id === id)!;
+    const len = isEdge(id) ? edgeLen(parseInt(id.slice(1))) : id === 'norte' || id === 'sur' ? space.width : space.depth;
+    const sf = list.find((x) => x.id === id)!;
     const help =
       id === 'suelo'
         ? 'Arrastra las 4 esquinas hasta los bordes de una baldosa o de un trozo de suelo cuyo tamaño conozcas.'
@@ -553,6 +583,7 @@ function RealSurfaces() {
       const id_ = await addAsset(new File([r.blob], `${id}.jpg`, { type: 'image/jpeg' }), `${id}.jpg`);
       if (id === 'suelo') updateSpace({ floorPhoto: { assetId: id_, tileM: space.floorPhoto?.tileM ?? 0.6 } });
       else if (id === 'techo') updateSpace({ ceilingPhoto: { assetId: id_ } });
+      else if (isEdge(id)) updateSpace({ edgePhotos: { ...(space.edgePhotos ?? {}), [id]: { assetId: id_ } }, showWalls: space.model ? space.showWalls : true });
       else updateSpace({ wallPhotos: { ...(space.wallPhotos ?? {}), [id]: { assetId: id_ } }, showWalls: space.model ? space.showWalls : true });
     }
     setBusy(null);
@@ -561,13 +592,18 @@ function RealSurfaces() {
   const clear = (id: Surface) => {
     if (id === 'suelo') return updateSpace({ floorPhoto: undefined });
     if (id === 'techo') return updateSpace({ ceilingPhoto: undefined });
+    if (isEdge(id)) {
+      const e = { ...(space.edgePhotos ?? {}) };
+      delete e[id];
+      return updateSpace({ edgePhotos: e });
+    }
     const next = { ...(space.wallPhotos ?? {}) };
-    delete next[id];
+    delete next[id as WallSide];
     updateSpace({ wallPhotos: next });
   };
 
   return (
-    <Section title="📱 Capturar la sala con la cámara" badge={`${done}/6`} defaultOpen={!space.model}>
+    <Section title="📱 Capturar la sala con la cámara" badge={`${done}/${list.length}`} defaultOpen={!space.model}>
       <p className="hint">
         Sin apps externas: fotografía cada superficie con el móvil, marca sus 4 esquinas y la app endereza la foto y la coloca a escala sobre el espacio. Comprueba antes que las
         medidas del espacio (ancho, fondo y altura) son las reales.
@@ -582,7 +618,7 @@ function RealSurfaces() {
         </ul>
       </details>
       <ul className="photo-slots">
-        {SURFACES.map((x) => (
+        {list.map((x) => (
           <li key={x.id}>
             <span className={has(x.id) ? 'slot-done' : ''} title={x.help}>
               {has(x.id) ? '✓ ' : ''}
@@ -638,7 +674,7 @@ function RoomPlanImport() {
         onFile={async (f) => {
           try {
             const r = parseRoomPlan(JSON.parse(await f.text()));
-            updateSpace({ width: r.width, depth: r.depth, height: r.height });
+            updateSpace({ width: r.width, depth: r.depth, height: r.height, outline: r.outline });
             addItems(
               r.items.map(({ id: _id, ...it }) => it),
               ['puerta', 'salida', 'ventana', 'tabique'],
@@ -675,5 +711,84 @@ function SaveRoom() {
       </button>
       {msg && <p className="hint">{msg}</p>}
     </div>
+  );
+}
+
+/** Forma de la sala: rectangular, en L, en U, en T o dibujada. */
+function ShapeEditor() {
+  const project = useStore((s) => s.project)!;
+  const updateSpace = useStore((s) => s.updateSpace);
+  const st = useStore();
+  const { space } = project;
+  const pts = space.outline;
+  const setPts = (outline: { x: number; z: number }[] | undefined) => updateSpace({ outline });
+  return (
+    <details className="guide shape-editor" open={!!pts}>
+      <summary>Forma de la sala: {pts ? `${pts.length} lados` : 'rectangular'}</summary>
+      <div className="row gap wrap">
+        <button className={`btn small ${!pts ? 'primary' : ''}`} onClick={() => setPts(undefined)}>
+          Rectangular
+        </button>
+        {(['L', 'U', 'T'] as const).map((k) => (
+          <button key={k} className="btn small" onClick={() => setPts(presetOutline(k, space.width, space.depth))}>
+            En {k}
+          </button>
+        ))}
+        <button
+          className="btn small"
+          onClick={() => {
+            st.setDrawPts([]);
+            st.setView('planta');
+            st.setTool('outline');
+          }}
+        >
+          ✏️ Dibujar en la planta
+        </button>
+      </div>
+      <p className="hint">Dibuja el contorno calcando el plano del hotel (súbelo antes en «Plano del hotel») o ajusta las esquinas a mano. Coordenadas en metros desde el centro.</p>
+      {pts && (
+        <table className="vertex-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>X</th>
+              <th>Z</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {pts.map((p, i) => (
+              <tr key={i}>
+                <td>{i + 1}</td>
+                <td>
+                  <NumberInput value={p.x} step={0.05} onChange={(x) => setPts(pts.map((q, j) => (j === i ? { ...q, x } : q)))} />
+                </td>
+                <td>
+                  <NumberInput value={p.z} step={0.05} onChange={(z) => setPts(pts.map((q, j) => (j === i ? { ...q, z } : q)))} />
+                </td>
+                <td className="nowrap">
+                  <button
+                    className="icon-btn"
+                    title="Añadir una esquina en el centro del siguiente lado"
+                    onClick={() => {
+                      const q = pts[(i + 1) % pts.length];
+                      const mid = { x: Math.round(((p.x + q.x) / 2) * 100) / 100, z: Math.round(((p.z + q.z) / 2) * 100) / 100 };
+                      setPts([...pts.slice(0, i + 1), mid, ...pts.slice(i + 1)]);
+                    }}
+                  >
+                    +
+                  </button>
+                  {pts.length > 3 && (
+                    <button className="icon-btn" title="Quitar esta esquina" onClick={() => setPts(pts.filter((_, j) => j !== i))}>
+                      ✕
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </details>
   );
 }

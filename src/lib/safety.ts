@@ -9,7 +9,8 @@
 
 import type { CatalogDef, Item, LayoutType, Project } from '../types';
 import { findDef, footprint, itemCapacity, itemDims } from '../catalog';
-import { OBB, insideRoom, obbOverlap, toWorld } from './geometry';
+import { OBB, obbOverlap, toWorld } from './geometry';
+import { insideSpace, roomArea } from './outline';
 
 export type Severity = 'ok' | 'aviso' | 'error';
 
@@ -68,7 +69,7 @@ export function capacitySummary(project: Project) {
 export function analyze(project: Project): { checks: Check[]; area: number; maxOccupancy: number; occupancy: number } {
   const { space, items, customCatalog, event } = project;
   const checks: Check[] = [];
-  const area = space.width * space.depth;
+  const area = roomArea(space);
   const density = DENSITY[(event.layout || 'general') as LayoutType | 'general'];
   const maxOccupancy = Math.floor(area / density.m2);
   const cap = capacitySummary(project);
@@ -206,7 +207,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
   // 6. Fuera del recinto
   if (!space.outdoor) {
     const outside = items.filter(
-      (i) => !findDef(i.type, customCatalog)?.wallMount && !insideRoom(obbOf(i, findDef(i.type, customCatalog), false), space.width, space.depth),
+      (i) => !findDef(i.type, customCatalog)?.wallMount && !insideSpace(obbOf(i, findDef(i.type, customCatalog), false), space),
     );
     if (outside.length) {
       checks.push({

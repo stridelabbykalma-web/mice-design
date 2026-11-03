@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { CatalogDef, Item, LightingPreset, Project, Space, Tool, ViewMode, EventInfo, TableTemplate, Variant } from './types';
 import { attachedDecor, decorForTable, isTableDef } from './lib/tables';
+import { snapToRoomWall } from './lib/outline';
 import { db, uid } from './lib/db';
 import { findDef } from './catalog';
 
@@ -28,6 +29,9 @@ interface State {
   measure: MeasurePoint[];
   /** Color recogido con el cuentagotas. */
   picked: string | null;
+  /** Vértices del contorno que se está dibujando. */
+  drawPts: { x: number; z: number }[];
+  setDrawPts(p: { x: number; z: number }[]): void;
   past: Snapshot[];
   future: Snapshot[];
   panel: string;
@@ -148,6 +152,8 @@ export const useStore = create<State>((set, get) => {
     clientMode: false,
     measure: [],
     picked: null,
+    drawPts: [],
+    setDrawPts: (drawPts) => set({ drawPts }),
     past: [],
     future: [],
     panel: 'espacio',
@@ -312,7 +318,19 @@ export const useStore = create<State>((set, get) => {
 
     updateSpace: (patch, record = true) => {
       if (record) get().checkpoint();
-      mutate((p) => ({ ...p, space: { ...p.space, ...patch } }));
+      mutate((p) => {
+        const space = { ...p.space, ...patch };
+        const shapeChanged = 'outline' in patch || 'width' in patch || 'depth' in patch;
+        if (!shapeChanged || space.outdoor) return { ...p, space };
+        // Puertas, salidas, ventanas y cuadros se reajustan a la pared más cercana de la nueva forma
+        const items = p.items.map((it) => {
+          const def = findDef(it.type, p.customCatalog);
+          if (!def?.wallMount) return it;
+          const snap = snapToRoomWall(it.x, it.z, space, it.d ?? def.d);
+          return { ...it, x: Math.round(snap.x * 100) / 100, z: Math.round(snap.z * 100) / 100, rot: snap.rot };
+        });
+        return { ...p, space, items };
+      });
     },
     updateEvent: (patch) => mutate((p) => ({ ...p, event: { ...p.event, ...patch } })),
     setLighting: (lighting) => mutate((p) => ({ ...p, lighting })),

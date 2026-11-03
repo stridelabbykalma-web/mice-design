@@ -9,7 +9,8 @@ import { findDef, footprint, itemDims } from '../catalog';
 import { sceneApi } from './sceneApi';
 import { FurnitureMesh, useAssetTexture, useGltf } from './Furniture';
 import { assetUrl } from '../lib/db';
-import { DEG, snapToWall, snapValue, corners } from '../lib/geometry';
+import { DEG, snapValue, corners } from '../lib/geometry';
+import { inwardNormal, roomOutline, snapToRoomWall } from '../lib/outline';
 import { analyze, problemItemIds } from '../lib/safety';
 import { attachedDecor, isDecorDef, isTableDef, onTableTop, tableAt } from '../lib/tables';
 
@@ -283,24 +284,44 @@ function WallPhoto({ assetId, w, h, offset }: { assetId: string; w: number; h: n
   );
 }
 
+/** Lado de una sala rectangular que corresponde a cada tramo del contorno rectangular. */
+const RECT_SIDES: WallSide[] = ['norte', 'este', 'sur', 'oeste'];
+
+/** Foto real del tramo i de pared (por lado en salas rectangulares, por tramo en las demás). */
+function edgePhoto(space: Space, i: number) {
+  if (space.outline && space.outline.length >= 3) return space.edgePhotos?.['e' + i];
+  return space.wallPhotos?.[RECT_SIDES[i]];
+}
+
 function Walls({ space, view }: { space: Space; view: string }) {
   const refs = useRef<(THREE.Group | null)[]>([]);
   const t = 0.15;
-  const { width: W, depth: D, height: H } = space;
-  // Cada pared: posición, tamaño, normal hacia el interior y giro de su cara interior.
-  const walls = [
-    { side: 'norte' as WallSide, pos: [0, H / 2, -D / 2 - t / 2], size: [W + 2 * t, H, t], n: [0, 0, 1], rot: 0, len: W },
-    { side: 'sur' as WallSide, pos: [0, H / 2, D / 2 + t / 2], size: [W + 2 * t, H, t], n: [0, 0, -1], rot: Math.PI, len: W },
-    { side: 'oeste' as WallSide, pos: [-W / 2 - t / 2, H / 2, 0], size: [t, H, D], n: [1, 0, 0], rot: Math.PI / 2, len: D },
-    { side: 'este' as WallSide, pos: [W / 2 + t / 2, H / 2, 0], size: [t, H, D], n: [-1, 0, 0], rot: -Math.PI / 2, len: D },
-  ];
+  const H = space.height;
+  const pts = roomOutline(space);
+  // Un tramo de pared por cada lado del contorno: centro, giro y normal hacia el interior.
+  const walls = pts.map((a, i) => {
+    const b = pts[(i + 1) % pts.length];
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    const n = inwardNormal(pts, i);
+    const mx = (a.x + b.x) / 2;
+    const mz = (a.z + b.z) / 2;
+    return {
+      len,
+      n,
+      center: new THREE.Vector3(mx - (n.x * t) / 2, H / 2, mz - (n.z * t) / 2),
+      inner: new THREE.Vector3(mx + n.x * 0.003, H / 2, mz + n.z * 0.003),
+      rot: Math.atan2(-(b.z - a.z), b.x - a.x),
+      faceRot: Math.atan2(n.x, n.z),
+    };
+  });
   // Las paredes que quedan entre la cámara y la sala se vuelven translúcidas.
   useFrame(({ camera }) => {
     walls.forEach((w, i) => {
       const g = refs.current[i];
       if (!g) return;
-      const toCam = new THREE.Vector3().subVectors(camera.position, new THREE.Vector3(...(w.pos as [number, number, number])));
-      const facing = toCam.dot(new THREE.Vector3(...(w.n as [number, number, number]))) < 0;
+      const toCamX = camera.position.x - w.center.x;
+      const toCamZ = camera.position.z - w.center.z;
+      const facing = toCamX * w.n.x + toCamZ * w.n.z < 0;
       const target = view === 'paseo' ? 1 : facing ? 0.08 : 1;
       g.traverse((o) => {
         const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
@@ -315,16 +336,16 @@ function Walls({ space, view }: { space: Space; view: string }) {
   return (
     <>
       {walls.map((w, i) => {
-        const photo = space.wallPhotos?.[w.side];
+        const photo = edgePhoto(space, i);
         return (
-          <group key={i} ref={(g) => (refs.current[i] = g)} position={w.pos as [number, number, number]}>
-            <mesh receiveShadow castShadow>
-              <boxGeometry args={w.size as [number, number, number]} />
+          <group key={i} ref={(g) => (refs.current[i] = g)}>
+            <mesh position={w.center} rotation={[0, w.rot, 0]} receiveShadow castShadow>
+              <boxGeometry args={[w.len + t, H, t]} />
               <meshStandardMaterial color={space.wallColor} roughness={0.95} transparent />
             </mesh>
             {photo && (
-              <group rotation={[0, w.rot, 0]}>
-                <WallPhoto assetId={photo.assetId} w={w.len} h={H} offset={t / 2 + 0.003} />
+              <group position={w.inner} rotation={[0, w.faceRot, 0]}>
+                <WallPhoto assetId={photo.assetId} w={w.len} h={H} offset={0} />
               </group>
             )}
           </group>
@@ -335,22 +356,29 @@ function Walls({ space, view }: { space: Space; view: string }) {
   );
 }
 
-/** Techo (solo en el paseo): liso o con la foto real, con el lado del frente arriba en la imagen. */
+/** Geometría del suelo o del techo con la forma de la sala. */
+function roomShapeGeometry(space: Space, kind: 'suelo' | 'techo') {
+  const pts = roomOutline(space);
+  const shape = new THREE.Shape(pts.map((p) => new THREE.Vector2(p.x, kind === 'suelo' ? -p.z : p.z)));
+  const g = new THREE.ShapeGeometry(shape);
+  g.rotateX(kind === 'suelo' ? -Math.PI / 2 : Math.PI / 2);
+  if (kind === 'techo') {
+    // La foto del techo cubre el rectángulo de la sala, con el frente arriba en la imagen.
+    const pos = g.attributes.position;
+    const uv = g.attributes.uv;
+    for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) + space.width / 2) / space.width, 1 - (pos.getZ(i) + space.depth / 2) / space.depth);
+    uv.needsUpdate = true;
+  }
+  return g;
+}
+
+/** Techo (solo en el paseo): liso o con la foto real. */
 function Ceiling({ space }: { space: Space }) {
   const tex = useAssetTexture(space.ceilingPhoto?.assetId);
-  const map = useMemo(() => {
-    if (!tex) return null;
-    const t = tex.clone();
-    t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(1, -1);
-    t.offset.set(0, 1);
-    t.needsUpdate = true;
-    return t;
-  }, [tex]);
+  const geo = useMemo(() => roomShapeGeometry(space, 'techo'), [space.outline, space.width, space.depth]);
   return (
-    <mesh position={[0, space.height + 0.01, 0]} rotation={[Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[space.width, space.depth]} />
-      {map ? <meshBasicMaterial map={map} side={THREE.DoubleSide} /> : <meshStandardMaterial color="#f4f1ec" side={THREE.DoubleSide} />}
+    <mesh position={[0, space.height + 0.01, 0]} geometry={geo}>
+      {tex ? <meshBasicMaterial map={tex} side={THREE.DoubleSide} /> : <meshStandardMaterial color="#f4f1ec" side={THREE.DoubleSide} />}
     </mesh>
   );
 }
@@ -362,10 +390,10 @@ function FloorMaterial({ space }: { space: Space }) {
     const t = tex.clone();
     const tile = space.floorPhoto?.tileM ?? 1;
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(space.width / tile, space.depth / tile);
+    t.repeat.set(1 / tile, 1 / tile);
     t.needsUpdate = true;
     return t;
-  }, [tex, space.width, space.depth, space.floorPhoto?.tileM]);
+  }, [tex, space.floorPhoto?.tileM]);
   return (
     <meshStandardMaterial
       color={tiled ? '#ffffff' : space.floorColor}
@@ -385,16 +413,10 @@ function Floor({ space, view }: { space: Space; view: string }) {
     (g.material as THREE.Material).opacity = 0.35;
     return g;
   }, [W, D]);
-  const border = useMemo(() => {
-    const pts = [
-      [-W / 2, -D / 2],
-      [W / 2, -D / 2],
-      [W / 2, D / 2],
-      [-W / 2, D / 2],
-      [-W / 2, -D / 2],
-    ].map(([x, z]) => new THREE.Vector3(x, 0.02, z));
-    return pts;
-  }, [W, D]);
+  const outline = roomOutline(space);
+  const border = useMemo(() => [...outline, outline[0]].map((p) => new THREE.Vector3(p.x, 0.02, p.z)), [outline]);
+  const floorGeo = useMemo(() => roomShapeGeometry(space, 'suelo'), [space.outline, W, D]);
+  const isPoly = !!space.outline && space.outline.length >= 3;
   const hideFloor = !!space.model && !space.showWalls;
   return (
     <>
@@ -405,8 +427,7 @@ function Floor({ space, view }: { space: Space; view: string }) {
         </mesh>
       )}
       {!hideFloor && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-          <planeGeometry args={[W, D]} />
+        <mesh geometry={floorGeo} receiveShadow>
           <FloorMaterial space={space} />
         </mesh>
       )}
@@ -414,12 +435,27 @@ function Floor({ space, view }: { space: Space; view: string }) {
       <Polyline points={border} color={space.outdoor ? '#ffffff' : '#5b6672'} />
       {view === 'planta' && (
         <>
-          <Html position={[0, 0, -D / 2 - 0.6]} center className="dim-label">
-            {W.toFixed(2).replace('.', ',')} m
-          </Html>
-          <Html position={[-W / 2 - 0.6, 0, 0]} center className="dim-label">
-            {D.toFixed(2).replace('.', ',')} m
-          </Html>
+          {isPoly ? (
+            // Cota de cada tramo de pared, fuera de la sala
+            outline.map((a, i) => {
+              const b = outline[(i + 1) % outline.length];
+              const n = inwardNormal(outline, i);
+              return (
+                <Html key={i} position={[(a.x + b.x) / 2 - n.x * 0.6, 0, (a.z + b.z) / 2 - n.z * 0.6]} center className="dim-label">
+                  {i + 1} · {Math.hypot(b.x - a.x, b.z - a.z).toFixed(2).replace('.', ',')} m
+                </Html>
+              );
+            })
+          ) : (
+            <>
+              <Html position={[0, 0, -D / 2 - 0.6]} center className="dim-label">
+                {W.toFixed(2).replace('.', ',')} m
+              </Html>
+              <Html position={[-W / 2 - 0.6, 0, 0]} center className="dim-label">
+                {D.toFixed(2).replace('.', ',')} m
+              </Html>
+            </>
+          )}
           <Html position={[0, 0, -D / 2 - 1.4]} center className="dim-label north">
             ▲ Frente / escenario
           </Html>
@@ -596,7 +632,7 @@ function Ghost({ project }: { project: Project }) {
 }
 
 export function placementFor(def: CatalogDef, p: THREE.Vector3, space: Space, snap: boolean) {
-  if (def.wallMount && !space.outdoor) return snapToWall(p.x, p.z, space.width, space.depth, def.d);
+  if (def.wallMount && !space.outdoor) return snapToRoomWall(p.x, p.z, space, def.d);
   const step = 0.1;
   return { x: snap ? snapValue(p.x, step) : p.x, z: snap ? snapValue(p.z, step) : p.z, rot: 0 };
 }
@@ -622,6 +658,25 @@ function MeasureViz() {
           </Html>
         </>
       )}
+    </group>
+  );
+}
+
+/** Contorno que se está dibujando en la planta. */
+function OutlineDraft() {
+  const pts = useStore((s) => s.drawPts);
+  const tool = useStore((s) => s.tool);
+  const line = useMemo(() => (pts.length ? [...pts, pts[0]].map((p) => new THREE.Vector3(p.x, 0.05, p.z)) : []), [pts]);
+  if (tool !== 'outline' || !pts.length) return null;
+  return (
+    <group>
+      {pts.length > 1 && <Polyline points={line} color="#e5484d" overlay />}
+      {pts.map((p, i) => (
+        <mesh key={i} position={[p.x, 0.05, p.z]}>
+          <sphereGeometry args={[0.12, 12, 10]} />
+          <meshBasicMaterial color={i === 0 ? '#2e8540' : '#e5484d'} depthTest={false} />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -663,7 +718,7 @@ function Interaction({ wrap }: { wrap: React.RefObject<HTMLDivElement> }) {
               z = snapValue(z, 0.05);
             }
             if (def?.wallMount && ids.length === 1 && !proj.space.outdoor) {
-              return snapToWall(x, z, proj.space.width, proj.space.depth, itemDims(it, def).d);
+              return snapToRoomWall(x, z, proj.space, itemDims(it, def).d);
             }
             return { x, z };
           },
@@ -708,6 +763,9 @@ function Interaction({ wrap }: { wrap: React.RefObject<HTMLDivElement> }) {
           st.select([id]);
           useInteraction.setState({ ghost: null });
         }
+      } else if (st.tool === 'outline') {
+        const p = floorPoint(e, el, camera, raycaster);
+        if (p) st.setDrawPts([...st.drawPts, { x: snapValue(p.x, 0.05), z: snapValue(p.z, 0.05) }]);
       } else if (st.tool === 'eyedropper') {
         // Lee el color real del píxel (escaneo, foto de pared, etc.).
         const c = gl.domElement;
@@ -864,6 +922,7 @@ export default function Scene() {
         </group>
         <Ghost project={project} />
         <MeasureViz />
+        <OutlineDraft />
         <Interaction wrap={wrap} />
         <ApiBridge root={root} />
       </Canvas>

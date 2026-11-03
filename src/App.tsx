@@ -10,6 +10,7 @@ import Survey from './components/Survey';
 import { RectifyHost } from './components/Rectify';
 import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { CompareModal, VariantMenu } from './components/Variants';
+import { normalizeOutline } from './lib/outline';
 import { downloadBlob, exportProject } from './lib/db';
 import { analyze, capacitySummary } from './lib/safety';
 import { LAYOUT_INFO } from './lib/layouts';
@@ -276,6 +277,38 @@ function Editor() {
               )}
               <button className="link" onClick={() => st.setTool('select')}>
                 Terminar
+              </button>
+            </div>
+          )}
+          {st.tool === 'outline' && (
+            <div className="hint-bar">
+              Haz clic en cada esquina de la sala ({st.drawPts.length} puntos)
+              {st.drawPts.length > 0 && (
+                <button className="link" onClick={() => st.setDrawPts(st.drawPts.slice(0, -1))}>
+                  Deshacer punto
+                </button>
+              )}
+              {st.drawPts.length >= 3 && (
+                <button
+                  className="link"
+                  onClick={() => {
+                    const n = normalizeOutline(st.drawPts);
+                    st.updateSpace({ outline: n.outline, width: n.width, depth: n.depth });
+                    st.setDrawPts([]);
+                    st.setTool('select');
+                  }}
+                >
+                  Terminar contorno
+                </button>
+              )}
+              <button
+                className="link"
+                onClick={() => {
+                  st.setDrawPts([]);
+                  st.setTool('select');
+                }}
+              >
+                Cancelar
               </button>
             </div>
           )}

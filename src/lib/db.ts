@@ -133,6 +133,7 @@ export function projectAssetIds(p: Project): string[] {
   Object.values(p.space.wallPhotos ?? {}).forEach((w) => w && ids.add(w.assetId));
   if (p.space.floorPhoto) ids.add(p.space.floorPhoto.assetId);
   if (p.space.ceilingPhoto) ids.add(p.space.ceilingPhoto.assetId);
+  Object.values(p.space.edgePhotos ?? {}).forEach((w) => ids.add(w.assetId));
   p.items.forEach((i) => i.imageAssetId && ids.add(i.imageAssetId));
   return [...ids];
 }

@@ -4,6 +4,7 @@ import { LAYOUT_INFO } from '../lib/layouts';
 import { analyze, capacitySummary } from '../lib/safety';
 import { budgetLines } from './Panels';
 import { eur, isEmbedded, m } from './ui';
+import { roomArea } from '../lib/outline';
 import type { LayoutType } from '../types';
 
 /** Orden de montaje (BEO) y propuesta para el cliente, lista para imprimir o guardar en PDF. */
@@ -60,7 +61,7 @@ export default function OrderSheet({ images, onClose }: { images: { plan?: strin
               <tr>
                 <th>Espacio</th>
                 <td>
-                  {space.name} ({m(space.width, 1)} × {m(space.depth, 1)} m, {m(space.width * space.depth, 0)} m²)
+                  {space.name} ({m(space.width, 1)} × {m(space.depth, 1)} m, {m(roomArea(space), 0)} m²)
                 </td>
               </tr>
               <tr>
