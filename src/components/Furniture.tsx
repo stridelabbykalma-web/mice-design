@@ -112,7 +112,11 @@ function ScannedModel({ def, w, d, h }: { def: CatalogDef; w: number; d: number;
   const src = useGltf(def.modelAssetId);
   const prepared = useMemo(() => {
     if (!src) return null;
-    const clone = src.clone(true);
+    const clone = new THREE.Group();
+    const inner = src.clone(true);
+    inner.rotation.x = ((def.tilt ?? 0) * Math.PI) / 180;
+    clone.add(inner);
+    clone.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(clone);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
@@ -121,7 +125,7 @@ function ScannedModel({ def, w, d, h }: { def: CatalogDef; w: number; d: number;
     holder.add(clone);
     if (def.fitToDims !== false && size.x > 0 && size.y > 0 && size.z > 0) holder.scale.set(w / size.x, h / size.y, d / size.z);
     return holder;
-  }, [src, def.fitToDims, w, d, h]);
+  }, [src, def.fitToDims, def.tilt, w, d, h]);
   if (!prepared)
     return (
       <mesh position={[0, h / 2, 0]}>

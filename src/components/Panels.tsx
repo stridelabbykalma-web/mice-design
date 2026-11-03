@@ -81,6 +81,24 @@ export function CatalogPanel() {
   );
 }
 
+/** Tamaño del modelo en sus unidades, con la corrección de eje aplicada. */
+async function measureModel(assetId: string, tilt: number) {
+  const g = new THREE.Group();
+  const o = (await loadGltf(assetId)).clone(true);
+  o.rotation.x = (tilt * Math.PI) / 180;
+  g.add(o);
+  g.updateMatrixWorld(true);
+  return new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3());
+}
+
+/** Propone medidas en metros: los escáneres de mano (Revo Scan…) suelen exportar en milímetros. */
+function guessDims(size: THREE.Vector3) {
+  const max = Math.max(size.x, size.y, size.z);
+  const k = max > 50 ? 0.001 : max > 5 ? 0.01 : 1; // mm, cm o m
+  const r = (v: number) => Math.round(v * k * 100) / 100;
+  return { w: r(size.x), d: r(size.z), h: r(size.y) };
+}
+
 type Kind = 'silla' | 'mesa-redonda' | 'mesa-rect' | 'sofa' | 'decoracion' | 'pared' | 'techo' | 'otro';
 
 function ScannedFurniture() {
@@ -88,17 +106,15 @@ function ScannedFurniture() {
   const addCustomDef = useStore((s) => s.addCustomDef);
   const updateCustomDef = useStore((s) => s.updateCustomDef);
   const removeCustomDef = useStore((s) => s.removeCustomDef);
-  const [draft, setDraft] = useState<null | { assetId: string; file: string; name: string; kind: Kind; w: number; d: number; h: number; fit: boolean; price: number; chairs: number; native: THREE.Vector3 }>(null);
+  const [draft, setDraft] = useState<null | { assetId: string; file: string; name: string; kind: Kind; w: number; d: number; h: number; fit: boolean; price: number; chairs: number; native: THREE.Vector3; tilt: number }>(null);
   const [err, setErr] = useState('');
 
   const onFile = async (f: File) => {
     setErr('');
     try {
       const id = await addAsset(f, f.name);
-      const obj = await loadGltf(id);
-      const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
-      const r = (v: number) => Math.round(v * 100) / 100;
-      setDraft({ assetId: id, file: f.name, name: f.name.replace(/\.(glb|gltf)$/i, ''), kind: 'otro', w: r(size.x), d: r(size.z), h: r(size.y), fit: true, price: 0, chairs: 0, native: size });
+      const size = await measureModel(id, 0);
+      setDraft({ assetId: id, file: f.name, name: f.name.replace(/\.(glb|gltf|ply)$/i, ''), kind: 'otro', ...guessDims(size), fit: true, price: 0, chairs: 0, native: size, tilt: 0 });
     } catch {
       setErr('No se pudo leer el modelo .glb.');
     }
@@ -118,6 +134,7 @@ function ScannedFurniture() {
       color: '#b08d57',
       modelAssetId: draft.assetId,
       fitToDims: draft.fit,
+      tilt: draft.tilt || undefined,
       seats: k === 'silla' ? 1 : k === 'sofa' ? Math.max(1, Math.round(draft.w / 0.65)) : undefined,
       chairs: k === 'mesa-redonda' || k === 'mesa-rect' ? draft.chairs : undefined,
       wallMount: k === 'pared' ? true : undefined,
@@ -135,8 +152,8 @@ function ScannedFurniture() {
         y podrás usarlos en los montajes automáticos.
       </p>
       {!draft && (
-        <FileButton accept=".glb,.gltf,model/gltf-binary" onFile={onFile}>
-          + Añadir mueble escaneado (.glb)
+        <FileButton accept=".glb,.gltf,.ply,model/gltf-binary" onFile={onFile}>
+          + Añadir mueble escaneado (.glb / .ply)
         </FileButton>
       )}
       {err && <p className="error">{err}</p>}
@@ -161,6 +178,20 @@ function ScannedFurniture() {
               <option value="pared">Decoración de pared (cuadro con relieve, aplique, espejo…)</option>
               <option value="techo">Lámpara de techo / colgante</option>
               <option value="otro">Otro</option>
+            </select>
+          </Field>
+          <Field label="Eje vertical" hint="Si el mueble aparece tumbado, el escáner lo exportó con otro eje hacia arriba.">
+            <select
+              value={draft.tilt}
+              onChange={async (e) => {
+                const tilt = parseFloat(e.target.value);
+                const size = await measureModel(draft.assetId, tilt);
+                setDraft({ ...draft, tilt, native: size, ...guessDims(size) });
+              }}
+            >
+              <option value={0}>Correcto (Y hacia arriba)</option>
+              <option value={-90}>Corregir: Z hacia arriba</option>
+              <option value={90}>Corregir: −Z hacia arriba</option>
             </select>
           </Field>
           <p className="hint">

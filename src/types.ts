@@ -101,6 +101,8 @@ export interface CatalogDef {
   modelAssetId?: string;
   /** true: el GLB se reescala a w×d×h; false: se usa su escala real. */
   fitToDims?: boolean;
+  /** Corrección del eje vertical del modelo (grados sobre X). */
+  tilt?: number;
   /** Altura de colocación por defecto (elementos que se cuelgan en la pared). */
   mountY?: number;
   description?: string;

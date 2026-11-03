@@ -76,6 +76,18 @@ Los proyectos se guardan automáticamente en el navegador (IndexedDB). Para pasa
   - `src/components/Survey.tsx`: módulo de evaluación SUS/TAM.
 - **Convención de ejes**: el espacio está centrado en el origen, X es el ancho y Z el fondo; el frente (escenario o pantalla) está en Z negativa, en la parte superior de la vista en planta. Las unidades son metros.
 
+## Escáner Revopoint Inspire 2 (mobiliario y decoración)
+
+El escáner de mano se usa para digitalizar **piezas**: sillas, mesas, sofás, lámparas, jarrones, esculturas, molduras o elementos decorativos sueltos. Para la **sala entera** es mejor la fotogrametría o el LiDAR del móvil, porque el escáner trabaja a poca distancia y escanear un salón con él sería lentísimo.
+
+Flujo recomendado en Revo Scan:
+1. Escanear la pieza en modo color (textura), con marcadores o mesa giratoria en las piezas pequeñas.
+2. Fusionar, limpiar el fondo y **simplificar la malla** (entre 100.000 y 500.000 triángulos por pieza para que el diseño siga fluido).
+3. Exportar en **PLY con color** (o en GLB si la versión de Revo Scan lo ofrece; si solo da OBJ con textura, convertirlo a GLB con Blender).
+4. En MICE Design: Catálogo → *Añadir mueble escaneado*. La app detecta si el archivo está en milímetros, propone las medidas en metros, corrige el eje vertical si la pieza sale tumbada y la ajusta a las medidas reales tomadas con un metro.
+
+Las superficies negras, brillantes o transparentes (cristal, cromado, lacado negro) se escanean mal con luz estructurada; en esos casos ayuda un spray matificante temporal.
+
 ## Aplicaciones de refuerzo recomendadas
 
 - **Captura de espacios y muebles**: Polycam, Scaniverse o RealityScan en el móvil (con LiDAR si está disponible), o Meshroom o RealityCapture a partir de fotos. Exportar en `.glb`.
