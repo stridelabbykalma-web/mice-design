@@ -65,7 +65,14 @@ export function demoProject(): Project {
  * escanearla y montada para una cena de 80 personas.
  */
 export async function demoScanProject(): Promise<Project> {
-  const blob = await (await fetch(salonUrl)).blob();
+  let blob: Blob;
+  if (salonUrl.startsWith('data:')) {
+    // Versión de un solo archivo: el modelo va incrustado en base64.
+    const bin = atob(salonUrl.slice(salonUrl.indexOf(',') + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    blob = new Blob([bytes], { type: 'model/gltf-binary' });
+  } else blob = await (await fetch(salonUrl)).blob();
   const assetId = await addAsset(new File([blob], 'salon-escaneado.glb', { type: 'model/gltf-binary' }), 'salon-escaneado.glb');
   const space = blankSpace('fotogrametria', 'Salón Real (gemelo digital)', 16, 11, 3.6);
   space.showWalls = false;
