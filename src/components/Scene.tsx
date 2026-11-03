@@ -4,20 +4,16 @@ import { Html, OrbitControls, OrthographicCamera, PerspectiveCamera, PointerLock
 import * as THREE from 'three';
 import { create } from 'zustand';
 import { useStore } from '../store';
-import type { CatalogDef, Item, Project, Space } from '../types';
+import type { CatalogDef, Item, Project, Space, WallSide } from '../types';
 import { findDef, footprint, itemDims } from '../catalog';
-import { FurnitureMesh, useGltf } from './Furniture';
+import { sceneApi } from './sceneApi';
+import { FurnitureMesh, useAssetTexture, useGltf } from './Furniture';
 import { assetUrl } from '../lib/db';
 import { DEG, snapToWall, snapValue, corners } from '../lib/geometry';
 import { analyze, problemItemIds } from '../lib/safety';
 
 // ---------- API expuesta fuera del Canvas (capturas, exportación) ----------
-export const sceneApi: {
-  gl?: THREE.WebGLRenderer;
-  scene?: THREE.Scene;
-  exportRoot?: THREE.Object3D;
-  modelObject?: THREE.Object3D | null;
-} = {};
+export { sceneApi };
 
 // Estado efímero de interacción (no se guarda en el proyecto).
 const useInteraction = create<{ dragging: boolean; ghost: THREE.Vector3 | null; walkLocked: boolean }>(() => ({
@@ -143,53 +139,195 @@ function UnderlayMesh({ space }: { space: Space }) {
   );
 }
 
-function ScannedSpace({ space }: { space: Space }) {
+/**
+ * Uniformes compartidos por todos los materiales del escaneo. Permiten, sin modificar el
+ * modelo, quitar el mobiliario que se capturó (vaciar), ocultar el techo y la pared que
+ * queda delante de la cámara para ver el interior.
+ */
+const scanUniforms = {
+  uRoom: { value: new THREE.Vector3(10, 10, 3) }, // ancho, fondo, alto
+  uEmpty: { value: 0 },
+  uBand: { value: 0.4 },
+  uFloorKeep: { value: 0.04 },
+  uCeilKeep: { value: 0.5 },
+  uCeilCut: { value: 0 },
+  uSides: { value: new THREE.Vector4(0, 0, 0, 0) }, // -X, +X, -Z, +Z
+};
+
+function patchScanMaterial(mat: THREE.Material) {
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, scanUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vScanWorld;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvScanWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vScanWorld;
+uniform vec3 uRoom; uniform float uEmpty; uniform float uBand; uniform float uFloorKeep;
+uniform float uCeilKeep; uniform float uCeilCut; uniform vec4 uSides;`,
+      )
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+{
+  vec3 p = vScanWorld;
+  float hw = uRoom.x * 0.5; float hd = uRoom.y * 0.5;
+  if (uCeilCut > 0.5 && p.y > uRoom.z - 0.12) discard;
+  if (uSides.x > 0.5 && p.x < -hw + 0.3) discard;
+  if (uSides.y > 0.5 && p.x >  hw - 0.3) discard;
+  if (uSides.z > 0.5 && p.z < -hd + 0.3) discard;
+  if (uSides.w > 0.5 && p.z >  hd - 0.3) discard;
+  if (uEmpty > 0.5 && abs(p.x) < hw - uBand && abs(p.z) < hd - uBand && p.y > uFloorKeep && p.y < uRoom.z - uCeilKeep) discard;
+}`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'mice-scan';
+  mat.needsUpdate = true;
+}
+
+function ScannedSpace({ space, view }: { space: Space; view: string }) {
   const m = space.model;
-  const obj = useGltf(m?.assetId);
+  const src = useGltf(m?.assetId);
+  const realColors = m?.realColors !== false;
+  const brightness = m?.brightness ?? 1;
+
+  // Copia del modelo con materiales preparados: colores reales (sin luz simulada) o PBR.
+  const obj = useMemo(() => {
+    if (!src) return null;
+    const clone = src.clone(true);
+    clone.traverse((o) => {
+      const pts = o as THREE.Points;
+      if (pts.isPoints) {
+        const pm = (pts.material as THREE.PointsMaterial).clone();
+        pm.color.multiplyScalar(brightness);
+        patchScanMaterial(pm);
+        pts.material = pm;
+        return;
+      }
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const conv = (orig: THREE.Material) => {
+        const om = orig as THREE.MeshStandardMaterial;
+        let mat: THREE.Material;
+        if (realColors) {
+          mat = new THREE.MeshBasicMaterial({
+            map: om.map ?? null,
+            color: (om.color ?? new THREE.Color('#ffffff')).clone().multiplyScalar(brightness),
+            vertexColors: om.vertexColors,
+            transparent: om.transparent,
+            opacity: om.opacity,
+            alphaTest: om.alphaTest,
+            side: THREE.DoubleSide,
+          });
+        } else {
+          const c = om.clone() as THREE.MeshStandardMaterial;
+          c.side = THREE.DoubleSide;
+          if (c.color) c.color.multiplyScalar(brightness);
+          mat = c;
+        }
+        patchScanMaterial(mat);
+        return mat;
+      };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(conv) : conv(mesh.material);
+      mesh.castShadow = !realColors;
+      mesh.receiveShadow = !realColors;
+    });
+    return clone;
+  }, [src, realColors, brightness]);
+
   useEffect(() => {
     sceneApi.modelObject = obj;
   }, [obj]);
+
+  useFrame(({ camera }) => {
+    const u = scanUniforms;
+    u.uRoom.value.set(space.width, space.depth, space.height);
+    u.uEmpty.value = m?.emptyInterior ? 1 : 0;
+    u.uBand.value = m?.keepBand ?? 0.4;
+    u.uCeilKeep.value = m?.keepCeiling ?? 1;
+    const inside = view === 'paseo';
+    u.uCeilCut.value = inside ? 0 : 1;
+    const c = camera.position;
+    // En la vista 3D se recorta la pared que queda entre la cámara y la sala.
+    const cut = view === '3d';
+    u.uSides.value.set(
+      cut && c.x < -space.width / 2 ? 1 : 0,
+      cut && c.x > space.width / 2 ? 1 : 0,
+      cut && c.z < -space.depth / 2 ? 1 : 0,
+      cut && c.z > space.depth / 2 ? 1 : 0,
+    );
+  });
+
   if (!m || !obj) return null;
   return (
     <group position={[m.offsetX, m.offsetY, m.offsetZ]} rotation={[0, m.rotation * DEG, 0]} scale={m.scale}>
-      <primitive object={obj} />
+      <group rotation={[(m.tilt ?? 0) * DEG, 0, 0]}>
+        <primitive object={obj} />
+      </group>
     </group>
   );
 }
 
+function WallPhoto({ assetId, w, h, offset }: { assetId: string; w: number; h: number; offset: number }) {
+  const tex = useAssetTexture(assetId);
+  if (!tex) return null;
+  return (
+    <mesh position={[0, 0, offset]}>
+      <planeGeometry args={[w, h]} />
+      <meshStandardMaterial map={tex} roughness={0.9} transparent />
+    </mesh>
+  );
+}
+
 function Walls({ space, view }: { space: Space; view: string }) {
-  const refs = useRef<(THREE.Mesh | null)[]>([]);
+  const refs = useRef<(THREE.Group | null)[]>([]);
   const t = 0.15;
   const { width: W, depth: D, height: H } = space;
+  // Cada pared: posición, tamaño, normal hacia el interior y giro de su cara interior.
   const walls = [
-    { pos: [0, H / 2, -D / 2 - t / 2], size: [W + 2 * t, H, t], n: [0, 0, 1] },
-    { pos: [0, H / 2, D / 2 + t / 2], size: [W + 2 * t, H, t], n: [0, 0, -1] },
-    { pos: [-W / 2 - t / 2, H / 2, 0], size: [t, H, D], n: [1, 0, 0] },
-    { pos: [W / 2 + t / 2, H / 2, 0], size: [t, H, D], n: [-1, 0, 0] },
+    { side: 'norte' as WallSide, pos: [0, H / 2, -D / 2 - t / 2], size: [W + 2 * t, H, t], n: [0, 0, 1], rot: 0, len: W },
+    { side: 'sur' as WallSide, pos: [0, H / 2, D / 2 + t / 2], size: [W + 2 * t, H, t], n: [0, 0, -1], rot: Math.PI, len: W },
+    { side: 'oeste' as WallSide, pos: [-W / 2 - t / 2, H / 2, 0], size: [t, H, D], n: [1, 0, 0], rot: Math.PI / 2, len: D },
+    { side: 'este' as WallSide, pos: [W / 2 + t / 2, H / 2, 0], size: [t, H, D], n: [-1, 0, 0], rot: -Math.PI / 2, len: D },
   ];
   // Las paredes que quedan entre la cámara y la sala se vuelven translúcidas.
   useFrame(({ camera }) => {
     walls.forEach((w, i) => {
-      const mesh = refs.current[i];
-      if (!mesh) return;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
+      const g = refs.current[i];
+      if (!g) return;
       const toCam = new THREE.Vector3().subVectors(camera.position, new THREE.Vector3(...(w.pos as [number, number, number])));
       const facing = toCam.dot(new THREE.Vector3(...(w.n as [number, number, number]))) < 0;
       const target = view === 'paseo' ? 1 : facing ? 0.08 : 1;
-      mat.opacity += (target - mat.opacity) * 0.2;
-      mat.transparent = mat.opacity < 0.99;
-      mat.depthWrite = mat.opacity > 0.5;
+      g.traverse((o) => {
+        const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (!mat) return;
+        mat.opacity += (target - mat.opacity) * 0.2;
+        mat.transparent = mat.opacity < 0.99;
+        mat.depthWrite = mat.opacity > 0.5;
+      });
     });
   });
   if (view === 'planta') return null;
   return (
     <>
-      {walls.map((w, i) => (
-        <mesh key={i} ref={(m) => (refs.current[i] = m)} position={w.pos as [number, number, number]} receiveShadow castShadow>
-          <boxGeometry args={w.size as [number, number, number]} />
-          <meshStandardMaterial color={space.wallColor} roughness={0.95} transparent />
-        </mesh>
-      ))}
+      {walls.map((w, i) => {
+        const photo = space.wallPhotos?.[w.side];
+        return (
+          <group key={i} ref={(g) => (refs.current[i] = g)} position={w.pos as [number, number, number]}>
+            <mesh receiveShadow castShadow>
+              <boxGeometry args={w.size as [number, number, number]} />
+              <meshStandardMaterial color={space.wallColor} roughness={0.95} transparent />
+            </mesh>
+            {photo && (
+              <group rotation={[0, w.rot, 0]}>
+                <WallPhoto assetId={photo.assetId} w={w.len} h={H} offset={t / 2 + 0.003} />
+              </group>
+            )}
+          </group>
+        );
+      })}
       {view === 'paseo' && (
         <mesh position={[0, H + 0.01, 0]} rotation={[Math.PI / 2, 0, 0]}>
           <planeGeometry args={[W, D]} />
@@ -197,6 +335,28 @@ function Walls({ space, view }: { space: Space; view: string }) {
         </mesh>
       )}
     </>
+  );
+}
+
+function FloorMaterial({ space }: { space: Space }) {
+  const tex = useAssetTexture(space.floorPhoto?.assetId);
+  const tiled = useMemo(() => {
+    if (!tex) return null;
+    const t = tex.clone();
+    const tile = space.floorPhoto?.tileM ?? 1;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(space.width / tile, space.depth / tile);
+    t.needsUpdate = true;
+    return t;
+  }, [tex, space.width, space.depth, space.floorPhoto?.tileM]);
+  return (
+    <meshStandardMaterial
+      color={tiled ? '#ffffff' : space.floorColor}
+      map={tiled}
+      roughness={0.85}
+      transparent={space.outdoor}
+      opacity={space.outdoor ? 0.25 : 1}
+    />
   );
 }
 
@@ -230,7 +390,7 @@ function Floor({ space, view }: { space: Space; view: string }) {
       {!hideFloor && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
           <planeGeometry args={[W, D]} />
-          <meshStandardMaterial color={space.floorColor} roughness={0.85} transparent={space.outdoor} opacity={space.outdoor ? 0.25 : 1} />
+          <FloorMaterial space={space} />
         </mesh>
       )}
       {(view === 'planta' || space.outdoor) && <primitive object={grid} position={[0, 0.006, 0]} />}
@@ -281,7 +441,9 @@ const ItemNode = memo(function ItemNode({
   showLabel,
   interactive,
   elev,
+  twin,
 }: {
+  twin: boolean;
   elev: number;
   item: Item;
   def?: CatalogDef;
@@ -321,8 +483,8 @@ const ItemNode = memo(function ItemNode({
     useInteraction.setState({ dragging: true });
   };
   return (
-    <group position={[item.x, elev, item.z]} rotation={[0, item.rot * DEG, 0]} onPointerDown={onDown} userData={{ itemId: item.id }}>
-      <FurnitureMesh item={item} def={def} custom={custom} wallHeight={wallHeight} lightsOn={lightsOn} />
+    <group position={[item.x, elev + (item.y ?? 0), item.z]} rotation={[0, item.rot * DEG, 0]} onPointerDown={onDown} userData={{ itemId: item.id }}>
+      <FurnitureMesh item={item} def={def} custom={custom} wallHeight={wallHeight} lightsOn={lightsOn} twin={twin} />
       {(selected || problem) && <Outline item={item} def={def} color={problem ? '#e5484d' : '#2f80ed'} />}
       {showLabel && item.label && (
         <Html position={[0, 1, 0]} center className="item-label" zIndexRange={[10, 0]}>
@@ -361,6 +523,7 @@ function Items({ project, view }: { project: Project; view: string }) {
         return (
           <ItemNode
             elev={elevation(it)}
+            twin={!!project.space.model}
             key={it.id}
             item={it}
             def={def}
@@ -388,7 +551,7 @@ function Ghost({ project }: { project: Project }) {
   const pos = placementFor(def, ghost, project.space, useStore.getState().snap);
   const it: Item = { id: 'ghost', type: def.type, x: pos.x, z: pos.z, rot: pos.rot, chairs: def.chairs };
   return (
-    <group position={[pos.x, 0, pos.z]} rotation={[0, pos.rot * DEG, 0]}>
+    <group position={[pos.x, def.mountY ?? 0, pos.z]} rotation={[0, pos.rot * DEG, 0]}>
       <FurnitureMesh item={it} def={def} custom={project.customCatalog} wallHeight={project.space.height} lightsOn={false} />
       <Outline item={it} def={def} color="#27ae60" />
     </group>
@@ -428,7 +591,7 @@ function MeasureViz() {
 
 // ---------- Interacción (arrastrar, colocar, medir, deseleccionar) ----------
 function Interaction({ wrap }: { wrap: React.RefObject<HTMLDivElement> }) {
-  const { camera, raycaster, scene } = useThree();
+  const { camera, raycaster, scene, gl } = useThree();
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
@@ -493,12 +656,24 @@ function Interaction({ wrap }: { wrap: React.RefObject<HTMLDivElement> }) {
         const def = findDef(st.placingType, st.project.customCatalog);
         if (!p || !def) return;
         const pos = placementFor(def, p, st.project.space, st.snap);
-        const id = st.addItem({ type: def.type, ...pos, chairs: def.chairs, centerpiece: def.chairs ? true : undefined });
+        const id = st.addItem({ type: def.type, ...pos, chairs: def.chairs, centerpiece: def.chairs ? true : undefined, y: def.mountY });
         if (!e.shiftKey) {
           st.setTool('select');
           st.select([id]);
           useInteraction.setState({ ghost: null });
         }
+      } else if (st.tool === 'eyedropper') {
+        // Lee el color real del píxel (escaneo, foto de pared, etc.).
+        const c = gl.domElement;
+        const r = c.getBoundingClientRect();
+        const px = ((e.clientX - r.left) * c.width) / r.width;
+        const py = ((e.clientY - r.top) * c.height) / r.height;
+        const tmp = document.createElement('canvas');
+        tmp.width = tmp.height = 1;
+        const ctx = tmp.getContext('2d')!;
+        ctx.drawImage(c, px, py, 1, 1, 0, 0, 1, 1);
+        const [R, G, B] = ctx.getImageData(0, 0, 1, 1).data;
+        st.setPicked('#' + [R, G, B].map((v) => v.toString(16).padStart(2, '0')).join(''));
       } else if (st.tool === 'measure') {
         // Mide sobre el modelo escaneado si existe; si no, sobre el suelo.
         const r = el.getBoundingClientRect();
@@ -521,7 +696,7 @@ function Interaction({ wrap }: { wrap: React.RefObject<HTMLDivElement> }) {
       window.removeEventListener('pointerup', onUp);
       el.removeEventListener('pointerleave', onLeave);
     };
-  }, [camera, raycaster, scene, wrap]);
+  }, [camera, raycaster, scene, wrap, gl]);
   return null;
 }
 
@@ -637,7 +812,7 @@ export default function Scene() {
         <group ref={root} name="mice-design-escena">
           <Floor space={space} view={view} />
           <UnderlayMesh space={space} />
-          <ScannedSpace space={space} />
+          <ScannedSpace space={space} view={view} />
           {space.showWalls && !space.outdoor && <Walls space={space} view={view} />}
           <Items project={project} view={view} />
         </group>

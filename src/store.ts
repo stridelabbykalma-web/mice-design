@@ -23,6 +23,8 @@ interface State {
   snap: boolean;
   clientMode: boolean;
   measure: MeasurePoint[];
+  /** Color recogido con el cuentagotas. */
+  picked: string | null;
   past: Snapshot[];
   future: Snapshot[];
   panel: string;
@@ -39,6 +41,7 @@ interface State {
   setShowVideo(v: boolean): void;
   addMeasurePoint(p: MeasurePoint): void;
   clearMeasure(): void;
+  setPicked(c: string | null): void;
 
   /** Guarda una instantánea para deshacer. */
   checkpoint(): void;
@@ -115,6 +118,7 @@ export const useStore = create<State>((set, get) => {
     snap: true,
     clientMode: false,
     measure: [],
+    picked: null,
     past: [],
     future: [],
     panel: 'espacio',
@@ -148,6 +152,7 @@ export const useStore = create<State>((set, get) => {
     setShowVideo: (showVideo) => set({ showVideo }),
     addMeasurePoint: (pt) => set({ measure: get().measure.length >= 2 ? [pt] : [...get().measure, pt] }),
     clearMeasure: () => set({ measure: [] }),
+    setPicked: (picked) => set({ picked }),
 
     checkpoint: () => {
       const p = get().project;

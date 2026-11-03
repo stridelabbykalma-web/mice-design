@@ -52,7 +52,8 @@ export function generatedTypes(project: Project): string[] {
   const types = new Set<string>();
   [...project.items].forEach((i) => {
     const def = findDef(i.type, project.customCatalog);
-    if (def && def.category !== 'arquitectura') types.add(i.type);
+    // Se conserva lo que forma parte de la sala real: arquitectura y decoración de pared o techo.
+    if (def && def.category !== 'arquitectura' && !def.wallMount && def.mountY === undefined) types.add(i.type);
   });
   return [...types];
 }

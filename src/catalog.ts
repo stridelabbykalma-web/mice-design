@@ -38,6 +38,8 @@ export const BASE_CATALOG: CatalogDef[] = [
   // Decoración
   { type: 'planta', name: 'Planta decorativa', category: 'decoracion', w: 0.6, d: 0.6, h: 1.6, price: 20, color: '#4f7d4a' },
   { type: 'photocall', name: 'Photocall 3×2,4 m', category: 'decoracion', w: 3, d: 0.4, h: 2.4, price: 180, color: '#ffffff', resizable: true },
+  { type: 'cuadro', name: 'Cuadro / fotografía real', category: 'decoracion', w: 1, d: 0.04, h: 0.75, price: 0, color: '#d9cdb8', wallMount: true, resizable: true, mountY: 1.55, description: 'Sube la foto del cuadro real del hotel y su tamaño' },
+  { type: 'espejo', name: 'Espejo de pared', category: 'decoracion', w: 1, d: 0.04, h: 1.4, price: 0, color: '#c9a45c', wallMount: true, resizable: true, mountY: 1.4 },
   { type: 'alfombra', name: 'Alfombra', category: 'decoracion', w: 3, d: 2, h: 0.01, price: 40, color: '#8a2433', resizable: true },
   // Iluminación
   { type: 'uplight', name: 'Uplight LED (color)', category: 'iluminacion', w: 0.25, d: 0.25, h: 0.2, price: 25, color: '#ff9e3d' },

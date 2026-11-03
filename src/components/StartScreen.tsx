@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Project, SpaceMethod } from '../types';
 import { db, importProject } from '../lib/db';
-import { blankSpace, demoProject } from '../lib/demo';
+import { blankSpace, demoProject, demoScanProject } from '../lib/demo';
 import { newProject, useStore } from '../store';
 import { ConfirmButton, Field, FileButton, NumberInput, isEmbedded } from './ui';
 
@@ -77,8 +77,18 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
           mobiliario real del hotel y enséñaselo al cliente en 3D.
         </p>
         <div className="row gap">
-          <button className="btn primary" onClick={openDemo}>
-            Abrir proyecto de ejemplo
+          <button
+            className="btn primary"
+            onClick={async () => {
+              const p = await demoScanProject();
+              db.saveProject(p);
+              openProject(p);
+            }}
+          >
+            Ejemplo: gemelo digital de una sala
+          </button>
+          <button className="btn" onClick={openDemo}>
+            Ejemplo: salón desde plano
           </button>
           <FileButton
             accept=".json,application/json"

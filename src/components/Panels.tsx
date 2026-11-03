@@ -81,7 +81,7 @@ export function CatalogPanel() {
   );
 }
 
-type Kind = 'silla' | 'mesa-redonda' | 'mesa-rect' | 'sofa' | 'decoracion' | 'otro';
+type Kind = 'silla' | 'mesa-redonda' | 'mesa-rect' | 'sofa' | 'decoracion' | 'pared' | 'techo' | 'otro';
 
 function ScannedFurniture() {
   const project = useStore((s) => s.project)!;
@@ -120,6 +120,8 @@ function ScannedFurniture() {
       fitToDims: draft.fit,
       seats: k === 'silla' ? 1 : k === 'sofa' ? Math.max(1, Math.round(draft.w / 0.65)) : undefined,
       chairs: k === 'mesa-redonda' || k === 'mesa-rect' ? draft.chairs : undefined,
+      wallMount: k === 'pared' ? true : undefined,
+      mountY: k === 'pared' ? 1.3 : k === 'techo' ? Math.max(2, (project.space.height || 3) - draft.h) : undefined,
       description: `Escaneado: ${draft.file}`,
     };
     addCustomDef(def);
@@ -155,7 +157,9 @@ function ScannedFurniture() {
               <option value="mesa-redonda">Mesa redonda (con sillas alrededor)</option>
               <option value="mesa-rect">Mesa rectangular (con sillas)</option>
               <option value="sofa">Sofá / banco</option>
-              <option value="decoracion">Decoración</option>
+              <option value="decoracion">Decoración de suelo (jarrón, escultura, biombo…)</option>
+              <option value="pared">Decoración de pared (cuadro con relieve, aplique, espejo…)</option>
+              <option value="techo">Lámpara de techo / colgante</option>
               <option value="otro">Otro</option>
             </select>
           </Field>
@@ -301,7 +305,7 @@ export function LayoutPanel() {
           )}
           {opts.type === 'banquete' && <Toggle checked={opts.staggered} onChange={(staggered) => setOpts({ ...opts, staggered })} label="Mesas al tresbolillo" />}
         </div>
-        <Toggle checked={replace} onChange={setReplace} label="Sustituir el mobiliario actual (se conservan columnas, puertas y salidas)" />
+        <Toggle checked={replace} onChange={setReplace} label="Sustituir el mobiliario actual (se conservan la arquitectura y la decoración de pared y techo)" />
         <div className="callout">
           Vista previa: <strong>{preview.pax} personas</strong>
           {preview.warning && <div className="warn-text">{preview.warning}</div>}
@@ -400,6 +404,34 @@ export function PropertiesPanel() {
             <NumberInput value={first.h ?? dims.h} min={0.01} onChange={(h) => set(() => ({ h }))} suffix="m" />
           </Field>
         </div>
+      )}
+      {items.length === 1 && first.type === 'cuadro' && (
+        <div className="callout">
+          <strong>Obra real</strong>
+          <p className="hint">Fotografía el cuadro de frente y recórtalo al borde del lienzo. El alto se ajusta a la proporción de la foto.</p>
+          <FileButton
+            accept="image/*"
+            className="btn small"
+            onFile={async (f) => {
+              const id = await addAsset(f, f.name);
+              const aspect = await new Promise<number>((res) => {
+                const img = new Image();
+                img.onload = () => res(img.naturalHeight / img.naturalWidth || 0.75);
+                img.onerror = () => res(0.75);
+                img.src = URL.createObjectURL(f);
+              });
+              const w = itemDims(first, def).w;
+              updateItems([first.id], () => ({ imageAssetId: id, h: Math.round(w * aspect * 100) / 100 }));
+            }}
+          >
+            {first.imageAssetId ? 'Cambiar foto del cuadro' : 'Subir foto del cuadro'}
+          </FileButton>
+        </div>
+      )}
+      {sameType && (def?.wallMount || def?.mountY !== undefined || def?.category === 'decoracion' || def?.category === 'iluminacion' || def?.category === 'hotel') && (
+        <Field label={first.type === 'cuadro' || first.type === 'espejo' ? 'Altura del centro sobre el suelo' : 'Altura sobre el suelo'}>
+          <NumberInput value={first.y ?? 0} min={0} max={20} step={0.05} onChange={(y) => set(() => ({ y }))} suffix="m" />
+        </Field>
       )}
       {sameType && def && !def.modelAssetId && def.category !== 'arquitectura' && (
         <Field label={def.category === 'iluminacion' ? 'Color de la luz' : def.chairs !== undefined ? 'Color de la mantelería' : 'Color'}>

@@ -1,7 +1,8 @@
 import type { Project, Space, SpaceMethod } from '../types';
 import { newProject } from '../store';
 import { generateLayout, defaultOptions } from './layouts';
-import { uid } from './db';
+import { addAsset, uid } from './db';
+import salonUrl from '../assets/salon-escaneado.glb?url';
 
 export function blankSpace(method: SpaceMethod, name: string, width: number, depth: number, height: number): Space {
   const outdoor = method === 'satelite';
@@ -55,5 +56,52 @@ export function demoProject(): Project {
     { id: uid('i_'), type: 'uplight', x: 11.5, z: 7.5, rot: 0, color: '#7b61ff' },
     { id: uid('i_'), type: 'atril-bienvenida', x: 1.6, z: 6.8, rot: 180, label: 'Bienvenidos\nCena de gala' },
   );
+  return p;
+}
+
+/**
+ * Proyecto de ejemplo sobre un gemelo digital: sala con papel pintado, zócalo, cuadros,
+ * espejo, apliques y lámparas (escaneo simulado), vaciada de los muebles que había al
+ * escanearla y montada para una cena de 80 personas.
+ */
+export async function demoScanProject(): Promise<Project> {
+  const blob = await (await fetch(salonUrl)).blob();
+  const assetId = await addAsset(new File([blob], 'salon-escaneado.glb', { type: 'model/gltf-binary' }), 'salon-escaneado.glb');
+  const space = blankSpace('fotogrametria', 'Salón Real (gemelo digital)', 16, 11, 3.6);
+  space.showWalls = false;
+  space.model = {
+    assetId,
+    name: 'salon-escaneado.glb (escaneo simulado de ejemplo)',
+    scale: 1,
+    rotation: 0,
+    offsetX: 0,
+    offsetY: 0,
+    offsetZ: 0,
+    realColors: true,
+    brightness: 1,
+    emptyInterior: true,
+    keepBand: 0.4,
+    keepCeiling: 1,
+  };
+  const p = newProject(space, 'Cena de bienvenida – Gemelo digital', 'Hotel de ejemplo');
+  p.items = [
+    { id: uid('i_'), type: 'puerta', x: 0, z: 5.5 - 0.06, rot: 180, w: 1.8 },
+    { id: uid('i_'), type: 'salida', x: 8 - 0.06, z: -3, rot: -90 },
+  ];
+  p.event = {
+    name: 'Cena de bienvenida',
+    client: 'Convención anual',
+    date: '',
+    time: '20:30 – 23:30',
+    pax: 80,
+    layout: 'banquete',
+    notes: 'Mantelería en el tono del zócalo, a juego con la sala. Se conservan los cuadros y las lámparas de araña del salón.',
+    pricePerPax: 65,
+    roomPrice: 900,
+  };
+  const layout = generateLayout(p, { ...defaultOptions('banquete'), tableType: 'mesa-redonda-150', pax: 80, margin: 1.0 });
+  p.event.pax = layout.pax;
+  let n = 0;
+  p.items.push(...layout.items.map((it) => ({ ...it, id: uid('i_'), color: it.chairs ? '#efe4cf' : undefined, label: it.chairs ? `Mesa ${++n}` : undefined })));
   return p;
 }

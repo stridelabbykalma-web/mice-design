@@ -23,7 +23,28 @@ export interface ImportedModel {
   offsetY: number;
   offsetZ: number;
   rotation: number; // grados
+  /** Corrección del eje vertical (grados sobre X) para escaneos exportados con Z hacia arriba. */
+  tilt?: number;
+  /** Mostrar los colores tal como se capturaron (sin sombreado simulado). */
+  realColors?: boolean;
+  /** Brillo del escaneo (1 = original). */
+  brightness?: number;
+  /** Quitar del escaneo el mobiliario capturado y conservar paredes, decoración, techo y suelo. */
+  emptyInterior?: boolean;
+  /** Franja junto a las paredes que se conserva al vaciar (cuadros, molduras, radiadores...). */
+  keepBand?: number;
+  /** Franja superior que se conserva al vaciar (lámparas, molduras de techo). */
+  keepCeiling?: number;
 }
+
+/** Foto real de una pared o del suelo aplicada como textura. */
+export interface PhotoTexture {
+  assetId: string;
+  /** Suelo: metros reales que mide el trozo fotografiado (se repite como un mosaico). */
+  tileM?: number;
+}
+
+export type WallSide = 'norte' | 'sur' | 'oeste' | 'este';
 
 export interface Space {
   method: SpaceMethod;
@@ -40,6 +61,8 @@ export interface Space {
   wallColor: string;
   underlay?: Underlay;
   model?: ImportedModel;
+  wallPhotos?: Partial<Record<WallSide, PhotoTexture>>;
+  floorPhoto?: PhotoTexture;
   videoAssetId?: string;
 }
 
@@ -78,6 +101,8 @@ export interface CatalogDef {
   modelAssetId?: string;
   /** true: el GLB se reescala a w×d×h; false: se usa su escala real. */
   fitToDims?: boolean;
+  /** Altura de colocación por defecto (elementos que se cuelgan en la pared). */
+  mountY?: number;
   description?: string;
 }
 
@@ -98,6 +123,10 @@ export interface Item {
   centerpiece?: boolean;
   /** Mesas: tipo de silla que se coloca alrededor (permite usar sillas escaneadas). */
   chairType?: string;
+  /** Altura sobre el suelo en metros (cuadros, apliques, lámparas). */
+  y?: number;
+  /** Foto real (cuadros, fotografías, lienzos). */
+  imageAssetId?: string;
 }
 
 export type LayoutType = 'teatro' | 'escuela' | 'banquete' | 'coctel' | 'u' | 'imperial';
@@ -130,4 +159,4 @@ export interface Project {
 }
 
 export type ViewMode = '3d' | 'planta' | 'paseo';
-export type Tool = 'select' | 'place' | 'measure';
+export type Tool = 'select' | 'place' | 'measure' | 'eyedropper';

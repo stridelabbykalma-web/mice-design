@@ -114,6 +114,9 @@ export function projectAssetIds(p: Project): string[] {
   if (p.space.model) ids.add(p.space.model.assetId);
   if (p.space.videoAssetId) ids.add(p.space.videoAssetId);
   p.customCatalog.forEach((c) => c.modelAssetId && ids.add(c.modelAssetId));
+  Object.values(p.space.wallPhotos ?? {}).forEach((w) => w && ids.add(w.assetId));
+  if (p.space.floorPhoto) ids.add(p.space.floorPhoto.assetId);
+  p.items.forEach((i) => i.imageAssetId && ids.add(i.imageAssetId));
   return [...ids];
 }
 

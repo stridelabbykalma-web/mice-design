@@ -28,6 +28,20 @@ Para generar un único archivo `dist/index.html` autocontenido, que se puede env
 SINGLE=1 npx vite build
 ```
 
+## Gemelo digital de la sala
+
+El objetivo es que el espacio sea un **doble exacto de la sala real**, decoración incluida, y que el evento se monte encima.
+
+1. **Escaneo completo (recomendado)**: importa el escaneo de la sala (`.glb`, también con compresión Draco/Meshopt/KTX2, o `.ply` con colores por vértice). Con *Colores y texturas reales* la sala se ve tal como se capturó: pinturas, papel pintado, molduras, apliques, lámparas, suelos. Los ambientes de luz no alteran esos colores.
+2. **Vaciar la sala**: si se escaneó con muebles, la app los oculta y conserva lo que forma parte de la sala: una franja junto a las paredes (cuadros, molduras, radiadores, consolas), otra bajo el techo (lámparas, molduras) y el suelo con sus alfombras. Las franjas son ajustables y el modelo original no se modifica.
+3. **Vista del interior**: en la vista 3D el techo y la pared que queda delante de la cámara se recortan solos; en el paseo la sala se ve completa.
+4. **Sin escaneo completo**: se puede subir una foto frontal de cada pared y del suelo (indicando cuánto mide la muestra para repetirla a escala), colocar cada cuadro real con su foto, su tamaño y su altura, y colgar piezas de decoración escaneadas en la pared o el techo.
+5. **Cuentagotas**: copia el color real de cualquier punto del escaneo o de las fotos y lo aplica a paredes, suelo, mantelerías o a la selección.
+
+La guía de captura que aparece en la app (luz uniforme, sin flash, 60-70 % de solape, pasadas a dos alturas y una al techo, acercarse a cuadros y molduras, exportar texturas en 4K) puede servir para el capítulo de metodología.
+
+El ejemplo *Gemelo digital de una sala* usa un **escaneo simulado** (`src/assets/salon-escaneado.glb`, generado con `tools/sala_ejemplo.py`) para demostrar el flujo. Para el caso práctico del TFG hay que sustituirlo por el escaneo real del hotel.
+
 ## Funcionalidades (objetivos OE5 y OE6)
 
 | Área | Qué hace |

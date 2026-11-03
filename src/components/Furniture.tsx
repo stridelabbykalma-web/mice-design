@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
+import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { sceneApi } from './sceneApi';
 import type { CatalogDef, Item } from '../types';
 import { findDef, isRoundTable, itemDims, rectChairLayout } from '../catalog';
-import { assetUrl } from '../lib/db';
+import { assetUrl, getAsset } from '../lib/db';
 
 // ---------- Texturas de texto (sin dependencias de fuentes externas) ----------
 const textCache = new Map<string, THREE.CanvasTexture>();
@@ -32,14 +37,41 @@ export function textTexture(text: string, bg: string, fg: string, w = 512, h = 2
 
 // ---------- Modelos GLB (fotogrametría / escaneo 3D) ----------
 const gltfCache = new Map<string, Promise<THREE.Object3D>>();
+let gltfLoader: GLTFLoader | null = null;
+/** Cargador glTF compatible con las exportaciones habituales de apps de escaneo (Draco, Meshopt, KTX2). */
+function getGltfLoader() {
+  if (gltfLoader) return gltfLoader;
+  const base = new URL('./', document.baseURI).href;
+  const draco = new DRACOLoader().setDecoderPath(base + 'draco/');
+  const ktx2 = new KTX2Loader().setTranscoderPath(base + 'basis/');
+  const gl = sceneApi.gl;
+  if (gl) ktx2.detectSupport(gl);
+  gltfLoader = new GLTFLoader().setDRACOLoader(draco).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+  return gltfLoader;
+}
+
+/** PLY de fotogrametría: malla con colores por vértice o, si no tiene caras, nube de puntos. */
+function plyToObject(geo: THREE.BufferGeometry): THREE.Object3D {
+  const hasColor = !!geo.getAttribute('color');
+  if (geo.index) {
+    if (!geo.getAttribute('normal')) geo.computeVertexNormals();
+    return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: hasColor, color: hasColor ? '#ffffff' : '#cccccc', roughness: 0.9 }));
+  }
+  return new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.012, vertexColors: hasColor, color: hasColor ? '#ffffff' : '#cccccc' }));
+}
+
 export function loadGltf(assetId: string): Promise<THREE.Object3D> {
   let p = gltfCache.get(assetId);
   if (!p) {
-    p = assetUrl(assetId).then(
-      (url) =>
+    p = Promise.all([assetUrl(assetId), getAsset(assetId)]).then(
+      ([url, asset]) =>
         new Promise<THREE.Object3D>((resolve, reject) => {
           if (!url) return reject(new Error('Archivo no encontrado'));
-          new GLTFLoader().load(
+          if (asset && /\.ply$/i.test(asset.name)) {
+            new PLYLoader().load(url, (geo) => resolve(plyToObject(geo)), undefined, reject);
+            return;
+          }
+          getGltfLoader().load(
             url,
             (g) => {
               g.scene.traverse((o) => {
@@ -56,6 +88,7 @@ export function loadGltf(assetId: string): Promise<THREE.Object3D> {
           );
         }),
     );
+    p.catch(() => gltfCache.delete(assetId));
     gltfCache.set(assetId, p);
   }
   return p;
@@ -247,11 +280,32 @@ function danceFloorTexture() {
 }
 let danceTex: THREE.Texture | null = null;
 
-export function FurnitureMesh({ item, def, custom, wallHeight, lightsOn }: { item: Item; def?: CatalogDef; custom: CatalogDef[]; wallHeight: number; lightsOn: boolean }) {
+export function FurnitureMesh({ item, def, custom, wallHeight, lightsOn, twin = false }: { item: Item; def?: CatalogDef; custom: CatalogDef[]; wallHeight: number; lightsOn: boolean; twin?: boolean }) {
   const { w, d, h } = itemDims(item, def);
   const color = item.color ?? def?.color ?? '#cccccc';
   const chairs = item.chairs ?? def?.chairs ?? 0;
   if (!def) return <Box w={w} h={h} d={d} color="#f0f" />;
+
+  // En un gemelo digital la arquitectura real ya está en el escaneo: solo se marca.
+  if (twin && def.category === 'arquitectura') {
+    const exit = item.type === 'salida';
+    const hh = item.type === 'columna' || item.type === 'tabique' ? item.h ?? wallHeight : h;
+    const y0 = item.type === 'ventana' ? 1.0 : 0;
+    return (
+      <group>
+        <mesh position={[0, y0 + hh / 2, 0]}>
+          <boxGeometry args={[w + 0.02, hh, Math.max(d, 0.06)]} />
+          <meshBasicMaterial color={exit ? '#1e8a3c' : item.type === 'puerta' ? '#2f80ed' : '#8a8f98'} transparent opacity={0.18} depthWrite={false} />
+        </mesh>
+        {exit && (
+          <mesh position={[0, h + 0.18, d / 2 + 0.03]}>
+            <planeGeometry args={[0.6, 0.25]} />
+            <meshBasicMaterial map={textTexture('SALIDA', '#1e8a3c', '#ffffff', 256, 106)} />
+          </mesh>
+        )}
+      </group>
+    );
+  }
 
   if (def.modelAssetId) {
     // Mueble del hotel escaneado. Si es una mesa, se le añaden sus sillas.
@@ -414,6 +468,21 @@ export function FurnitureMesh({ item, def, custom, wallHeight, lightsOn }: { ite
           <Box w={w} h={0.05} d={d} y={0.025} color="#333" />
         </group>
       );
+    case 'cuadro':
+      return <PhotoFrame assetId={item.imageAssetId} w={w} h={h} d={d} frame={color} />;
+    case 'espejo':
+      return (
+        <group>
+          <mesh castShadow>
+            <boxGeometry args={[w, h, d]} />
+            <meshStandardMaterial color={color} metalness={0.7} roughness={0.35} />
+          </mesh>
+          <mesh position={[0, 0, d / 2 + 0.002]}>
+            <planeGeometry args={[w - 0.12, h - 0.12]} />
+            <meshStandardMaterial color="#dfe8ee" metalness={0.9} roughness={0.08} emissive="#9fb2c0" emissiveIntensity={0.15} />
+          </mesh>
+        </group>
+      );
     case 'alfombra':
       return (
         <mesh position={[0, 0.006, 0]} receiveShadow>
@@ -544,3 +613,64 @@ function RectChairsOnly({ type, w, d, chairs, chairType, custom }: { type: strin
 }
 
 export { isRoundTable };
+
+// ---------- Texturas a partir de fotos reales (paredes, suelo, cuadros) ----------
+const texCache = new Map<string, Promise<THREE.Texture>>();
+export function loadTexture(assetId: string): Promise<THREE.Texture> {
+  let p = texCache.get(assetId);
+  if (!p) {
+    p = assetUrl(assetId).then(
+      (url) =>
+        new Promise<THREE.Texture>((resolve, reject) => {
+          if (!url) return reject(new Error('Imagen no encontrada'));
+          new THREE.TextureLoader().load(
+            url,
+            (t) => {
+              t.colorSpace = THREE.SRGBColorSpace;
+              t.anisotropy = 8;
+              resolve(t);
+            },
+            undefined,
+            reject,
+          );
+        }),
+    );
+    texCache.set(assetId, p);
+  }
+  return p;
+}
+
+export function useAssetTexture(assetId?: string) {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setTex(null);
+    if (assetId) loadTexture(assetId).then((t) => alive && setTex(t)).catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [assetId]);
+  return tex;
+}
+
+/** Cuadro, lienzo o fotografía real del hotel, con su marco. El origen es el centro del cuadro. */
+function PhotoFrame({ assetId, w, h, d, frame }: { assetId?: string; w: number; h: number; d: number; frame: string }) {
+  const tex = useAssetTexture(assetId);
+  const border = Math.min(0.06, Math.min(w, h) * 0.06);
+  return (
+    <group>
+      <mesh castShadow>
+        <boxGeometry args={[w, h, d]} />
+        <meshStandardMaterial color={frame} roughness={0.6} />
+      </mesh>
+      <mesh position={[0, 0, d / 2 + 0.002]}>
+        <planeGeometry args={[w - 2 * border, h - 2 * border]} />
+        {tex ? (
+          <meshStandardMaterial map={tex} roughness={0.8} />
+        ) : (
+          <meshBasicMaterial map={textTexture('Sube la foto\ndel cuadro', '#efe9df', '#8a7f70', 512, 384)} />
+        )}
+      </mesh>
+    </group>
+  );
+}

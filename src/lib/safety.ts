@@ -36,7 +36,7 @@ const fmt = (v: number, d = 2) => v.toFixed(d).replace('.', ',');
 /** Elementos que pueden ir encima del escenario sin considerarse un solape. */
 const ON_STAGE = new Set(['atril', 'pantalla', 'planta', 'foco', 'uplight', 'silla', 'silla-conferencia', 'butaca', 'sofa']);
 
-const NON_BLOCKING = new Set(['alfombra', 'pista-baile', 'uplight', 'toma-corriente', 'ventana', 'puerta', 'salida']);
+const NON_BLOCKING = new Set(['cuadro', 'espejo', 'alfombra', 'pista-baile', 'uplight', 'toma-corriente', 'ventana', 'puerta', 'salida']);
 
 export function obbOf(item: Item, def?: CatalogDef, withChairs = true): OBB {
   const f = withChairs ? footprint(item, def) : itemDims(item, def);

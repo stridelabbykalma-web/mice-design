@@ -788,7 +788,8 @@ table.budget {
   touch-action: none;
 }
 .scene-wrap.tool-place,
-.scene-wrap.tool-measure {
+.scene-wrap.tool-measure,
+.scene-wrap.tool-eyedropper {
   cursor: crosshair;
 }
 .hint-bar {
@@ -1326,4 +1327,49 @@ table.budget {
   background: var(--panel);
   color: var(--ink);
   margin: 0;
+}
+.sub-title {
+  margin: 14px 0 4px;
+  font-size: 13px;
+}
+.guide {
+  margin: 10px 0;
+  font-size: 12.5px;
+}
+.guide summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+}
+.guide ul {
+  padding-left: 18px;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+.guide li {
+  margin-bottom: 4px;
+}
+.photo-slots {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+}
+.photo-slots li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--soft);
+}
+.photo-slots li span {
+  flex: 1;
+  font-size: 12.5px;
+  min-width: 0;
+}
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid #fff;
+  flex: none;
 }

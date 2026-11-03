@@ -240,6 +240,39 @@ function Editor() {
               </button>
             </div>
           )}
+          {st.tool === 'eyedropper' && (
+            <div className="hint-bar">
+              {st.picked ? <span className="swatch" style={{ background: st.picked }} /> : null}
+              {st.picked ? 'Aplicar a:' : 'Haz clic en el espacio para copiar un color real'}
+              {st.picked && (
+                <>
+                  {st.selection.length > 0 && (
+                    <button className="link" onClick={() => st.updateItems(st.selection, () => ({ color: st.picked! }))}>
+                      selección
+                    </button>
+                  )}
+                  <button className="link" onClick={() => st.updateSpace({ wallColor: st.picked! })}>
+                    paredes
+                  </button>
+                  <button className="link" onClick={() => st.updateSpace({ floorColor: st.picked! })}>
+                    suelo
+                  </button>
+                  <button
+                    className="link"
+                    onClick={() => {
+                      const ids = project.items.filter((i) => i.type.startsWith('mesa') || i.type === 'buffet').map((i) => i.id);
+                      st.updateItems(ids, () => ({ color: st.picked! }));
+                    }}
+                  >
+                    mantelerías
+                  </button>
+                </>
+              )}
+              <button className="link" onClick={() => st.setTool('select')}>
+                Terminar
+              </button>
+            </div>
+          )}
           {st.tool === 'measure' && (
             <div className="hint-bar">
               Marca dos puntos para medir · M o Esc para salir

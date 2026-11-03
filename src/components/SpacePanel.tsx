@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useStore } from '../store';
-import type { SpaceMethod } from '../types';
+import type { SpaceMethod, WallSide } from '../types';
 import { addAsset, assetUrl, downloadBlob } from '../lib/db';
 import { loadGltf } from './Furniture';
 import { geocode, satelliteImage, SAT_ATTRIBUTION } from '../lib/satellite';
@@ -83,6 +83,8 @@ export default function SpacePanel() {
         </div>
         <p className="hint">Añade columnas, puertas, salidas de emergencia y ventanas desde Catálogo → Elementos del espacio.</p>
       </Section>
+
+      <RealSurfaces />
 
       {order.map((method) => {
         const primary = method === space.method;
@@ -180,17 +182,24 @@ function PhotogrammetrySection({ primary }: { primary: boolean }) {
   const [msg, setMsg] = useState('');
 
   /** Centra el modelo, lo apoya en el suelo y ajusta las medidas del espacio a su huella. */
-  const autoFit = async (assetId: string, scale: number, rotation: number, name: string) => {
-    const obj = await loadGltf(assetId);
-    const box = new THREE.Box3().setFromObject(obj);
+  const autoFit = async (assetId: string, scale: number, rotation: number, name: string, tilt?: number) => {
+    const src = await loadGltf(assetId);
+    const prevTilt = tilt ?? (useStore.getState().project?.space.model?.assetId === assetId ? useStore.getState().project?.space.model?.tilt ?? 0 : 0);
+    const holder = new THREE.Group();
+    holder.add(src.clone(true));
+    holder.rotation.x = prevTilt * DEG;
+    holder.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(holder);
     const size = box.getSize(new THREE.Vector3()).multiplyScalar(scale);
     const c = box.getCenter(new THREE.Vector3()).multiplyScalar(scale);
     const r = rotation * DEG;
     const cx = c.x * Math.cos(r) + c.z * Math.sin(r);
     const cz = -c.x * Math.sin(r) + c.z * Math.cos(r);
     const swap = Math.abs(Math.sin(r)) > 0.7;
+    const prev = useStore.getState().project?.space.model;
+    const keep = prev && prev.assetId === assetId ? prev : { realColors: true, brightness: 1, emptyInterior: false, keepBand: 0.4, keepCeiling: 1 };
     updateSpace({
-      model: { assetId, name, scale, rotation, offsetX: -cx, offsetY: -box.min.y * scale, offsetZ: -cz },
+      model: { ...keep, tilt: prevTilt, assetId, name, scale, rotation, offsetX: -cx, offsetY: -box.min.y * scale, offsetZ: -cz },
       width: Math.round((swap ? size.z : size.x) * 100) / 100,
       depth: Math.round((swap ? size.x : size.z) * 100) / 100,
       height: Math.max(2.2, Math.round(size.y * 100) / 100),
@@ -206,7 +215,7 @@ function PhotogrammetrySection({ primary }: { primary: boolean }) {
         con programas de fotogrametría como Meshroom o RealityCapture a partir de una sesión de fotos.
       </p>
       <FileButton
-        accept=".glb,.gltf,model/gltf-binary"
+        accept=".glb,.gltf,.ply,model/gltf-binary"
         onFile={async (f) => {
           setBusy(true);
           setMsg('');
@@ -215,13 +224,23 @@ function PhotogrammetrySection({ primary }: { primary: boolean }) {
             const size = await autoFit(id, 1, 0, f.name);
             setMsg(`Modelo cargado: ${m(size.x)} × ${m(size.z)} × ${m(size.y)} m. Si las medidas no son reales, corrige la escala.`);
           } catch {
-            setMsg('No se pudo leer el modelo. Asegúrate de que es un archivo .glb válido.');
+            setMsg('No se pudo leer el modelo. Exporta el escaneo en .glb (recomendado) o .ply.');
           }
           setBusy(false);
         }}
       >
-        {busy ? 'Cargando…' : mdl ? 'Cambiar modelo 3D' : 'Importar modelo 3D (.glb)'}
+        {busy ? 'Cargando…' : mdl ? 'Cambiar modelo 3D' : 'Importar escaneo de la sala (.glb / .ply)'}
       </FileButton>
+      <details className="guide">
+        <summary>Cómo capturar la sala para que sea un doble exacto</summary>
+        <ul>
+          <li>Ilumina la sala de forma uniforme (todas las luces encendidas, cortinas como estarán el día del evento) y no uses flash.</li>
+          <li>Recorre todo el perímetro con un solape del 60-70 % entre fotos y repite a dos alturas (1,0 y 1,7 m) y una pasada mirando al techo.</li>
+          <li>Acércate a cuadros, molduras, apliques y papel pintado para que la textura tenga detalle; evita superficies en movimiento.</li>
+          <li>Puedes escanear con los muebles puestos: después activa «Vaciar la sala» y monta encima con el mobiliario escaneado del hotel.</li>
+          <li>Exporta en .glb con texturas en alta resolución (4K si la app lo permite) y comprueba la escala midiendo una puerta.</li>
+        </ul>
+      </details>
       {msg && <p className="hint">{msg}</p>}
       {mdl && (
         <div className="sub">
@@ -246,6 +265,42 @@ function PhotogrammetrySection({ primary }: { primary: boolean }) {
           <p className="hint">
             Consejo: mide con la herramienta <em>Medir</em> una distancia conocida del modelo (una puerta suele medir 0,8–0,9 m por hoja) y corrige la escala.
           </p>
+          <Field label="Eje vertical" hint="Si la sala aparece tumbada, el escaneo se exportó con otro eje hacia arriba.">
+            <select value={mdl.tilt ?? 0} onChange={(e) => autoFit(mdl.assetId, mdl.scale, mdl.rotation, mdl.name, parseFloat(e.target.value))}>
+              <option value={0}>Correcto (Y hacia arriba)</option>
+              <option value={-90}>Corregir: Z hacia arriba</option>
+              <option value={90}>Corregir: −Z hacia arriba</option>
+            </select>
+          </Field>
+          <h4 className="sub-title">Gemelo digital</h4>
+          <Toggle
+            checked={mdl.realColors !== false}
+            onChange={(realColors) => updateSpace({ model: { ...mdl, realColors } })}
+            label="Colores y texturas reales, tal como se capturaron"
+          />
+          <p className="hint">
+            Activado, la sala se ve exactamente como en el escaneo (pinturas, papel pintado, molduras, suelos) y los ambientes de luz no la alteran. Desactívalo para simular
+            la iluminación del evento sobre la sala.
+          </p>
+          <Field label={`Brillo (${Math.round((mdl.brightness ?? 1) * 100)} %)`}>
+            <input type="range" min={0.5} max={1.6} step={0.05} value={mdl.brightness ?? 1} onChange={(e) => updateSpace({ model: { ...mdl, brightness: parseFloat(e.target.value) } }, false)} />
+          </Field>
+          <Toggle
+            checked={!!mdl.emptyInterior}
+            onChange={(emptyInterior) => updateSpace({ model: { ...mdl, emptyInterior } })}
+            label="Vaciar la sala: quitar el mobiliario que había al escanear"
+          />
+          {mdl.emptyInterior && (
+            <div className="grid2">
+              <Field label="Conservar junto a paredes" hint="Cuadros, molduras, radiadores, consolas">
+                <NumberInput value={mdl.keepBand ?? 0.4} min={0.05} max={3} step={0.05} onChange={(keepBand) => updateSpace({ model: { ...mdl, keepBand } })} suffix="m" />
+              </Field>
+              <Field label="Conservar bajo el techo" hint="Lámparas, molduras de techo">
+                <NumberInput value={mdl.keepCeiling ?? 1} min={0} max={3} step={0.05} onChange={(keepCeiling) => updateSpace({ model: { ...mdl, keepCeiling } })} suffix="m" />
+              </Field>
+            </div>
+          )}
+          <p className="hint">En la vista 3D el techo y la pared más cercana a la cámara se ocultan solos para ver el interior; en el paseo la sala se ve completa.</p>
           <div className="row gap">
             <button className="btn small" onClick={() => autoFit(mdl.assetId, mdl.scale, mdl.rotation, mdl.name)}>
               Recentrar y ajustar medidas
@@ -432,5 +487,80 @@ export function VideoReference() {
       </div>
       <video ref={ref} src={url} controls muted playsInline />
     </div>
+  );
+}
+
+const WALL_LABEL: Record<WallSide, string> = {
+  norte: 'Pared del frente (arriba en planta)',
+  sur: 'Pared del fondo',
+  oeste: 'Pared izquierda',
+  este: 'Pared derecha',
+};
+
+/** Fotos reales de paredes y suelo, y cuentagotas para reproducir los colores del espacio. */
+function RealSurfaces() {
+  const project = useStore((s) => s.project)!;
+  const updateSpace = useStore((s) => s.updateSpace);
+  const setTool = useStore((s) => s.setTool);
+  const { space } = project;
+  if (space.outdoor) return null;
+  const setWall = async (side: WallSide, f: File) => {
+    const id = await addAsset(f, f.name);
+    updateSpace({ wallPhotos: { ...(space.wallPhotos ?? {}), [side]: { assetId: id } }, showWalls: space.model ? space.showWalls : true });
+  };
+  const clearWall = (side: WallSide) => {
+    const next = { ...(space.wallPhotos ?? {}) };
+    delete next[side];
+    updateSpace({ wallPhotos: next });
+  };
+  return (
+    <Section title="🖼️ Paredes, suelo y colores reales" defaultOpen={!space.model}>
+      <p className="hint">
+        Si no tienes el escaneo completo, fotografía cada pared de frente (de esquina a esquina, del suelo al techo) y el suelo. Las fotos se aplican a escala sobre el espacio,
+        con sus cuadros, molduras y colores.
+      </p>
+      <ul className="photo-slots">
+        {(Object.keys(WALL_LABEL) as WallSide[]).map((side) => (
+          <li key={side}>
+            <span>{WALL_LABEL[side]}</span>
+            <FileButton accept="image/*" className="btn small" onFile={(f) => setWall(side, f)}>
+              {space.wallPhotos?.[side] ? 'Cambiar foto' : 'Subir foto'}
+            </FileButton>
+            {space.wallPhotos?.[side] && (
+              <button className="icon-btn" title="Quitar foto" onClick={() => clearWall(side)}>
+                ✕
+              </button>
+            )}
+          </li>
+        ))}
+        <li>
+          <span>Suelo (moqueta, parqué, mármol…)</span>
+          <FileButton
+            accept="image/*"
+            className="btn small"
+            onFile={async (f) => {
+              const id = await addAsset(f, f.name);
+              updateSpace({ floorPhoto: { assetId: id, tileM: space.floorPhoto?.tileM ?? 1 } });
+            }}
+          >
+            {space.floorPhoto ? 'Cambiar foto' : 'Subir foto'}
+          </FileButton>
+          {space.floorPhoto && (
+            <button className="icon-btn" title="Quitar foto" onClick={() => updateSpace({ floorPhoto: undefined })}>
+              ✕
+            </button>
+          )}
+        </li>
+      </ul>
+      {space.floorPhoto && (
+        <Field label="Tamaño real del trozo de suelo fotografiado" hint="Por ejemplo, una baldosa de 0,6 m o un tramo de moqueta de 1 m; se repite como un mosaico.">
+          <NumberInput value={space.floorPhoto.tileM ?? 1} min={0.05} max={20} onChange={(tileM) => updateSpace({ floorPhoto: { ...space.floorPhoto!, tileM } })} suffix="m" />
+        </Field>
+      )}
+      <button className="btn small" onClick={() => setTool('eyedropper')}>
+        Coger un color del espacio (cuentagotas)
+      </button>
+      <p className="hint">Haz clic en el escaneo o en una foto para copiar su color real y aplicarlo a paredes, suelo o mantelerías.</p>
+    </Section>
   );
 }
