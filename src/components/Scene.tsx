@@ -148,7 +148,7 @@ const scanUniforms = {
   uRoom: { value: new THREE.Vector3(10, 10, 3) }, // ancho, fondo, alto
   uEmpty: { value: 0 },
   uBand: { value: 0.4 },
-  uFloorKeep: { value: 0.04 },
+  uFloorKeep: { value: 0.02 },
   uCeilKeep: { value: 0.5 },
   uCeilCut: { value: 0 },
   uSides: { value: new THREE.Vector4(0, 0, 0, 0) }, // -X, +X, -Z, +Z
