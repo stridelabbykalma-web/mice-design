@@ -2,6 +2,13 @@
 
 Prototipo del Trabajo de Fin de Grado **MICE Design**: una herramienta web de diseño 3D para planificar y presentar eventos en hoteles sobre una réplica fiel del espacio real y del mobiliario propio del hotel.
 
+## Versión publicada
+
+Cada cambio que se sube a `main` se compila y se publica automáticamente en GitHub Pages (`.github/workflows/pages.yml`):
+https://stridelabbykalma-web.github.io/mice-design/
+
+Para activarlo la primera vez: en GitHub, *Settings → Pages → Build and deployment → Source: GitHub Actions*.
+
 ## Puesta en marcha
 
 Requisitos: [Node.js](https://nodejs.org) 18 o superior.
