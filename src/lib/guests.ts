@@ -4,6 +4,7 @@ import type { Guest, Item, Project } from '../types';
 import { findDef } from '../catalog';
 import { isTableDef } from './tables';
 import { uid } from './db';
+import { t, tableLabel } from './i18n';
 
 /** Mesas de la propuesta actual, ordenadas por su número. */
 export function seatingTables(project: Project): Item[] {
@@ -160,10 +161,12 @@ export function dietSummary(guests: Guest[]) {
 export function seatingCsv(project: Project): string {
   const guests = project.guests ?? [];
   const tables = seatingTables(project);
-  const label = new Map(tables.map((t) => [t.id, t.label ?? 'Mesa']));
+  const lang = project.event.language;
+  const T = (es: string) => t(lang, es);
+  const label = new Map(tables.map((tb) => [tb.id, tableLabel(lang, tb.label)]));
   const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
   const rows = [...guests]
     .sort((a, b) => (label.get(a.tableId ?? '') ?? 'zzz').localeCompare(label.get(b.tableId ?? '') ?? 'zzz', 'es', { numeric: true }) || a.name.localeCompare(b.name, 'es'))
-    .map((g) => [label.get(g.tableId ?? '') ?? 'Sin mesa', g.name, g.group ?? '', g.diet ?? '', g.notes ?? ''].map(esc).join(';'));
-  return '﻿' + ['Mesa;Nombre;Grupo;Dieta o alergias;Notas', ...rows].join('\n');
+    .map((g) => [label.get(g.tableId ?? '') ?? T('Sin mesa'), g.name, g.group ?? '', g.diet ?? '', g.notes ?? ''].map(esc).join(';'));
+  return '﻿' + [['Mesa', 'Nombre', 'Grupo', 'Dieta o alergias', 'Notas'].map(T).join(';'), ...rows].join('\n');
 }

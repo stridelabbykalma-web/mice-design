@@ -167,6 +167,8 @@ export interface EventInfo {
   notes: string;
   pricePerPax: number;
   roomPrice: number;
+  /** Idioma de lo que ve el cliente (vista cliente, propuesta, comparación, plano de mesas). */
+  language?: 'es' | 'en';
 }
 
 export type LightingPreset = 'dia' | 'tarde' | 'noche' | 'gala';

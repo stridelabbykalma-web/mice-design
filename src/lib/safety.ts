@@ -66,7 +66,8 @@ export function capacitySummary(project: Project) {
   return { seated, standing, total: seated + standing };
 }
 
-export function analyze(project: Project): { checks: Check[]; area: number; maxOccupancy: number; occupancy: number } {
+export function analyze(project: Project, lang: 'es' | 'en' = 'es'): { checks: Check[]; area: number; maxOccupancy: number; occupancy: number } {
+  const L = (es: string, en: string) => (lang === 'en' ? en : es);
   const { space, items, customCatalog, event } = project;
   const checks: Check[] = [];
   const area = roomArea(space);
@@ -80,14 +81,14 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
     checks.push({
       id: 'aforo',
       severity: 'error',
-      title: `Aforo superado: ${occupancy} personas para ${maxOccupancy} máx.`,
+      title: L(`Aforo superado: ${occupancy} personas para ${maxOccupancy} máx.`, `Capacity exceeded: ${occupancy} guests for a maximum of ${maxOccupancy}`),
       detail: `${fmt(area, 0)} m² · ${density.label}.`,
     });
   } else {
     checks.push({
       id: 'aforo',
       severity: occupancy > maxOccupancy * 0.9 ? 'aviso' : 'ok',
-      title: `Aforo: ${occupancy} / ${maxOccupancy} personas`,
+      title: L(`Aforo: ${occupancy} / ${maxOccupancy} personas`, `Capacity: ${occupancy} / ${maxOccupancy} guests`),
       detail: `${fmt(area, 0)} m² · ${density.label}.`,
     });
   }
@@ -99,7 +100,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
     checks.push({
       id: 'salidas',
       severity: space.outdoor ? 'aviso' : 'error',
-      title: space.outdoor ? 'No hay accesos definidos en la zona' : 'No hay puertas ni salidas definidas',
+      title: space.outdoor ? L('No hay accesos definidos en la zona', 'No access points defined') : L('No hay puertas ni salidas definidas', 'No doors or exits defined'),
       detail: space.outdoor
         ? 'Marca los accesos y vías de evacuación de la zona exterior (Elementos del espacio → Salida de emergencia).'
         : 'Añade las puertas y salidas de emergencia reales del espacio (Elementos del espacio).',
@@ -109,7 +110,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
       checks.push({
         id: 'num-salidas',
         severity: 'error',
-        title: 'Se necesitan al menos 2 salidas',
+        title: L('Se necesitan al menos 2 salidas', 'At least 2 exits are required'),
         detail: 'Con más de 100 ocupantes el recinto debe disponer de más de una salida (DB-SI 3, Tabla 3.1).',
       });
     }
@@ -117,7 +118,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
       checks.push({
         id: 'senal',
         severity: 'aviso',
-        title: 'Ninguna salida marcada como de emergencia',
+        title: L('Ninguna salida marcada como de emergencia', 'No emergency exit marked'),
         detail: 'Señaliza al menos una salida de emergencia para que aparezca en la orden de montaje.',
       });
     }
@@ -127,7 +128,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
     checks.push({
       id: 'anchura',
       severity: available + 1e-6 >= required ? 'ok' : 'error',
-      title: `Anchura de salidas: ${fmt(available)} m disponibles / ${fmt(required)} m necesarios`,
+      title: L(`Anchura de salidas: ${fmt(available)} m disponibles / ${fmt(required)} m necesarios`, `Exit width: ${available.toFixed(2)} m available / ${required.toFixed(2)} m required`),
       detail:
         widths.length > 1
           ? 'Calculado suponiendo inutilizada la salida más ancha (A ≥ P/200, DB-SI 3).'
@@ -151,7 +152,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
       checks.push({
         id: 'recorrido',
         severity: worst * 1.25 > limit ? (worst > limit ? 'error' : 'aviso') : 'ok',
-        title: `Recorrido de evacuación máx. ≈ ${fmt(worst, 1)} m (límite ${limit} m)`,
+        title: L(`Recorrido de evacuación máx. ≈ ${fmt(worst, 1)} m (límite ${limit} m)`, `Longest evacuation route ≈ ${worst.toFixed(1)} m (limit ${limit} m)`),
         detail: 'Distancia en línea recta desde el puesto más alejado hasta la salida más próxima; el recorrido real será mayor.',
         itemIds: worst > limit ? [worstId] : undefined,
       });
@@ -170,7 +171,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
       checks.push({
         id: 'obstruidas',
         severity: 'error',
-        title: `${blocked.length} elemento(s) obstruyen puertas o salidas`,
+        title: L(`${blocked.length} elemento(s) obstruyen puertas o salidas`, `${blocked.length} item(s) blocking doors or exits`),
         detail: 'Debe quedar libre al menos 1,2 m delante de cada puerta y salida.',
         itemIds: [...new Set(blocked)],
       });
@@ -197,11 +198,11 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
       ? {
           id: 'solapes',
           severity: 'aviso',
-          title: `${overlapping.size} elementos se solapan`,
+          title: L(`${overlapping.size} elementos se solapan`, `${overlapping.size} items overlap`),
           detail: 'Revisa la separación entre mesas, sillas y columnas (se marcan en rojo).',
           itemIds: [...overlapping],
         }
-      : { id: 'solapes', severity: 'ok', title: 'Sin solapes entre elementos', detail: 'Ningún mueble invade a otro.' },
+      : { id: 'solapes', severity: 'ok', title: L('Sin solapes entre elementos', 'No overlapping items'), detail: 'Ningún mueble invade a otro.' },
   );
 
   // 6. Fuera del recinto
@@ -213,7 +214,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
       checks.push({
         id: 'fuera',
         severity: 'aviso',
-        title: `${outside.length} elemento(s) fuera de los límites del espacio`,
+        title: L(`${outside.length} elemento(s) fuera de los límites del espacio`, `${outside.length} item(s) outside the venue`),
         detail: 'Sobresalen de las paredes del salón.',
         itemIds: outside.map((i) => i.id),
       });

@@ -12,6 +12,7 @@ import { assetUrl } from '../lib/db';
 import { DEG, snapValue, corners } from '../lib/geometry';
 import { inwardNormal, roomOutline, snapToRoomWall } from '../lib/outline';
 import { analyze, problemItemIds } from '../lib/safety';
+import { decimal, t, tableLabel } from '../lib/i18n';
 import { attachedDecor, isDecorDef, isTableDef, onTableTop, tableAt } from '../lib/tables';
 
 // ---------- API expuesta fuera del Canvas (capturas, exportación) ----------
@@ -472,6 +473,7 @@ function Floor({ space, view }: { space: Space; view: string }) {
   const floorGeo = useMemo(() => roomShapeGeometry(space, 'suelo'), [space.outline, W, D]);
   const isPoly = !!space.outline && space.outline.length >= 3;
   const hideFloor = (!!space.model || !!space.splat) && !space.showWalls;
+  const floorLang = useStore((s) => (s.clientMode ? s.project?.event.language : 'es'));
   return (
     <>
       {space.outdoor && (
@@ -496,22 +498,22 @@ function Floor({ space, view }: { space: Space; view: string }) {
               const n = inwardNormal(outline, i);
               return (
                 <Html zIndexRange={[10, 0]} key={i} position={[(a.x + b.x) / 2 - n.x * 0.6, 0, (a.z + b.z) / 2 - n.z * 0.6]} center className="dim-label">
-                  {i + 1} · {Math.hypot(b.x - a.x, b.z - a.z).toFixed(2).replace('.', ',')} m
+                  {i + 1} · {decimal(floorLang, Math.hypot(b.x - a.x, b.z - a.z))} m
                 </Html>
               );
             })
           ) : (
             <>
               <Html zIndexRange={[10, 0]} position={[0, 0, -D / 2 - 0.6]} center className="dim-label">
-                {W.toFixed(2).replace('.', ',')} m
+                {decimal(floorLang, W)} m
               </Html>
               <Html zIndexRange={[10, 0]} position={[-W / 2 - 0.6, 0, 0]} center className="dim-label">
-                {D.toFixed(2).replace('.', ',')} m
+                {decimal(floorLang, D)} m
               </Html>
             </>
           )}
           <Html zIndexRange={[10, 0]} position={[0, 0, -D / 2 - 1.4]} center className="dim-label north">
-            ▲ Frente / escenario
+            {floorLang === 'en' ? '▲ Front / stage' : '▲ Frente / escenario'}
           </Html>
         </>
       )}
@@ -604,7 +606,7 @@ const ItemNode = memo(function ItemNode({
       {(selected || problem) && <Outline item={item} def={def} color={problem ? '#e5484d' : '#2f80ed'} />}
       {showLabel && item.label && (
         <Html position={[0, 1, 0]} center className="item-label" zIndexRange={[10, 0]}>
-          {item.label}
+          {tableLabel(useStore.getState().clientMode ? useStore.getState().project?.event.language : 'es', item.label)}
           {seats !== undefined && <span className="occ"> {seats}</span>}
         </Html>
       )}
@@ -971,6 +973,8 @@ export default function Scene() {
   const tool = useStore((s) => s.tool);
   const walkLocked = useInteraction((s) => s.walkLocked);
   const splat = useInteraction((s) => s.splat);
+  const clientMode = useStore((s) => s.clientMode);
+  const clientLang = clientMode ? project.event.language : 'es';
   const wrap = useRef<HTMLDivElement>(null);
   const root = useRef<THREE.Group>(null);
   const { space } = project;
@@ -998,9 +1002,9 @@ export default function Scene() {
       {view === 'paseo' && !walkLocked && (
         <div className="walk-overlay">
           <button id="walk-start" className="btn primary">
-            Haz clic para recorrer el espacio
+            {t(clientLang, 'Haz clic para recorrer el espacio')}
           </button>
-          <p>W A S D o flechas para moverte · ratón para mirar · Mayús para ir más rápido · Esc para salir</p>
+          <p>{t(clientLang, 'W A S D o flechas para moverte · ratón para mirar · Mayús para ir más rápido · Esc para salir')}</p>
         </div>
       )}
     </div>

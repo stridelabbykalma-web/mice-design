@@ -10,7 +10,8 @@ import Survey from './components/Survey';
 import { RectifyHost } from './components/Rectify';
 import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { CompareModal, VariantMenu } from './components/Variants';
-import { normalizeOutline } from './lib/outline';
+import { normalizeOutline, roomArea } from './lib/outline';
+import { locale, t } from './lib/i18n';
 import GuestsPanel from './components/GuestsPanel';
 import { downloadBlob, exportProject } from './lib/db';
 import { analyze, capacitySummary } from './lib/safety';
@@ -341,6 +342,9 @@ function ClientView() {
   const st = useStore();
   const cap = capacitySummary(project);
   const ev = project.event;
+  const lang = ev.language;
+  const T = (es: string) => t(lang, es);
+  const num = (v: number, d: number) => (lang === 'en' ? v.toFixed(d) : m(v, d));
   return (
     <div className="editor client">
       <header className="toolbar">
@@ -354,46 +358,53 @@ function ClientView() {
         <div className="seg">
           {(['3d', 'planta', 'paseo'] as ViewMode[]).map((v) => (
             <button key={v} className={st.view === v ? 'active' : ''} onClick={() => st.setView(v)}>
-              {{ '3d': 'Vista 3D', planta: 'Plano', paseo: 'Recorrido' }[v]}
+              {T({ '3d': 'Vista 3D', planta: 'Plano', paseo: 'Recorrido' }[v])}
             </button>
           ))}
         </div>
         <VariantMenu client />
         <select className="light-select" value={project.lighting} onChange={(e) => st.setLighting(e.target.value as LightingPreset)}>
-          <option value="dia">☀️ Día</option>
-          <option value="tarde">🌇 Tarde</option>
-          <option value="noche">🌙 Noche</option>
-          <option value="gala">✨ Gala</option>
+          <option value="dia">☀️ {T('Día')}</option>
+          <option value="tarde">🌇 {T('Tarde')}</option>
+          <option value="noche">🌙 {T('Noche')}</option>
+          <option value="gala">✨ {T('Gala')}</option>
         </select>
+        <div className="seg" role="group" aria-label="Idioma / Language">
+          {(['es', 'en'] as const).map((l) => (
+            <button key={l} className={(lang ?? 'es') === l ? 'active' : ''} onClick={() => st.updateEvent({ language: l })}>
+              {l.toUpperCase()}
+            </button>
+          ))}
+        </div>
         <div className="spacer" />
         <button className="btn" onClick={() => st.setClientMode(false)}>
-          Salir de la vista cliente
+          {T('Salir de la vista cliente')}
         </button>
       </header>
       <main className="viewport">
         <Scene />
         <div className="client-card">
-          <h3>{ev.client || 'Propuesta de evento'}</h3>
+          <h3>{ev.client || T('Propuesta de evento')}</h3>
           <dl>
             {ev.date && (
               <>
-                <dt>Fecha</dt>
-                <dd>{new Date(ev.date + 'T12:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}</dd>
+                <dt>{T('Fecha')}</dt>
+                <dd>{new Date(ev.date + 'T12:00').toLocaleDateString(locale(lang), { day: 'numeric', month: 'long', year: 'numeric' })}</dd>
               </>
             )}
             {ev.time && (
               <>
-                <dt>Horario</dt>
+                <dt>{T('Horario')}</dt>
                 <dd>{ev.time}</dd>
               </>
             )}
-            <dt>Montaje</dt>
-            <dd>{ev.layout ? LAYOUT_INFO[ev.layout as LayoutType].name : 'Personalizado'}</dd>
-            <dt>Asistentes</dt>
+            <dt>{T('Montaje')}</dt>
+            <dd>{T(ev.layout ? LAYOUT_INFO[ev.layout as LayoutType].name : 'Personalizado')}</dd>
+            <dt>{T('Asistentes')}</dt>
             <dd>{ev.pax || cap.total}</dd>
-            <dt>Espacio</dt>
+            <dt>{T('Espacio')}</dt>
             <dd>
-              {m(project.space.width * project.space.depth, 0)} m² · {m(project.space.height, 1)} m de altura
+              {num(roomArea(project.space), 0)} m² · {num(project.space.height, 1)} m {T('de altura')}
             </dd>
           </dl>
           {ev.notes && <p>{ev.notes}</p>}

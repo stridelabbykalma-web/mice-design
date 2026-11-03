@@ -6,7 +6,8 @@ import { LAYOUT_INFO } from '../lib/layouts';
 import { isTableDef } from '../lib/tables';
 import { findDef } from '../catalog';
 import { budgetLines } from './Panels';
-import { ConfirmButton, eur, m } from './ui';
+import { ConfirmButton, m } from './ui';
+import { money, t } from '../lib/i18n';
 
 /** Resumen de una propuesta para compararla con las demás. */
 export function variantSummary(project: Project, v: Variant) {
@@ -130,6 +131,8 @@ export function VariantMenu({ onCompare, client = false }: { onCompare?: () => v
 /** Comparación lado a lado de las propuestas, con plano de cada una. */
 export function CompareModal({ capture, onClose }: { capture: (view: ViewMode) => Promise<string | undefined>; onClose: () => void }) {
   const project = useStore((s) => s.project)!;
+  const lang = project.event.language;
+  const T = (es: string) => t(lang, es);
   const st = useStore();
   const vs = syncedVariants(project);
   const [shots, setShots] = useState<Record<string, string>>({});
@@ -162,14 +165,14 @@ export function CompareModal({ capture, onClose }: { capture: (view: ViewMode) =
     <div className="order-overlay">
       <div className="order-actions">
         <button className="btn primary" onClick={takeShots} disabled={busy}>
-          {busy ? 'Generando planos…' : 'Ver el plano de cada propuesta'}
+          {T(busy ? 'Generando planos…' : 'Ver el plano de cada propuesta')}
         </button>
         <button className="btn" onClick={onClose}>
-          Cerrar
+          {T('Cerrar')}
         </button>
       </div>
       <article className="compare-sheet">
-        <h1>Comparación de propuestas</h1>
+        <h1>{T('Comparación de propuestas')}</h1>
         <p className="muted">
           {project.name} · {project.space.name} ({m(project.space.width * project.space.depth, 0)} m²)
         </p>
@@ -181,7 +184,7 @@ export function CompareModal({ capture, onClose }: { capture: (view: ViewMode) =
                 {vs.map((v) => (
                   <th key={v.id}>
                     {v.name}
-                    {v.id === (project.activeVariant ?? vs[0].id) && <span className="badge">actual</span>}
+                    {v.id === (project.activeVariant ?? vs[0].id) && <span className="badge">{T('actual')}</span>}
                   </th>
                 ))}
               </tr>
@@ -189,7 +192,7 @@ export function CompareModal({ capture, onClose }: { capture: (view: ViewMode) =
             <tbody>
               {Object.keys(shots).length > 0 && (
                 <tr>
-                  <th>Plano</th>
+                  <th>{T('Plano')}</th>
                   {vs.map((v) => (
                     <td key={v.id}>{shots[v.id] && <img src={shots[v.id]} alt={`Plano de ${v.name}`} />}</td>
                   ))}
@@ -197,7 +200,7 @@ export function CompareModal({ capture, onClose }: { capture: (view: ViewMode) =
               )}
               {(
                 [
-                  ['Montaje', (v: Variant) => (v.layout ? LAYOUT_INFO[v.layout as LayoutType].name : 'Personalizado')],
+                  ['Montaje', (v: Variant) => T(v.layout ? LAYOUT_INFO[v.layout as LayoutType].name : 'Personalizado')],
                   ['Plazas sentadas', (v: Variant) => String(variantSummary(project, v).cap.seated)],
                   ['Personas de pie', (v: Variant) => String(variantSummary(project, v).cap.standing)],
                   ['Mesas', (v: Variant) => String(variantSummary(project, v).tables)],
@@ -206,16 +209,17 @@ export function CompareModal({ capture, onClose }: { capture: (view: ViewMode) =
                     'Seguridad',
                     (v: Variant) => {
                       const s = variantSummary(project, v);
+                      if (lang === 'en') return s.errors ? `${s.errors} issue(s)` : s.warnings ? `${s.warnings} warning(s)` : 'OK';
                       return s.errors ? `${s.errors} problema(s)` : s.warnings ? `${s.warnings} aviso(s)` : 'Correcta';
                     },
                   ],
-                  ['Mobiliario y montaje', (v: Variant) => eur(variantSummary(project, v).furniture)],
-                  ['Total con IVA', (v: Variant) => eur(variantSummary(project, v).total)],
-                  ['Ambiente de luz', (v: Variant) => ({ dia: 'Día', tarde: 'Tarde', noche: 'Noche', gala: 'Gala' })[v.lighting]],
+                  ['Mobiliario y montaje', (v: Variant) => money(lang, variantSummary(project, v).furniture)],
+                  ['Total con IVA', (v: Variant) => money(lang, variantSummary(project, v).total)],
+                  ['Ambiente de luz', (v: Variant) => T({ dia: 'Día', tarde: 'Tarde', noche: 'Noche', gala: 'Gala' }[v.lighting])],
                 ] as [string, (v: Variant) => string][]
               ).map(([label, fn]) => (
                 <tr key={label}>
-                  <th>{label}</th>
+                  <th>{T(label)}</th>
                   {vs.map((v) => (
                     <td key={v.id}>{fn(v)}</td>
                   ))}
@@ -232,7 +236,7 @@ export function CompareModal({ capture, onClose }: { capture: (view: ViewMode) =
                         onClose();
                       }}
                     >
-                      Abrir
+                      {T('Abrir')}
                     </button>
                   </td>
                 ))}

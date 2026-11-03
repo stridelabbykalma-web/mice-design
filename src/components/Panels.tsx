@@ -561,11 +561,11 @@ export function PropertiesPanel() {
 // ===================== Evento y presupuesto =====================
 
 export function budgetLines(project: ReturnType<typeof useStore.getState>['project'] & object) {
-  const lines = new Map<string, { name: string; qty: number; price: number }>();
+  const lines = new Map<string, { type: string; name: string; qty: number; price: number }>();
   const add = (type: string, qty: number) => {
     const d = findDef(type, project.customCatalog);
     if (!d || d.category === 'arquitectura') return;
-    const l = lines.get(type) ?? { name: d.name, qty: 0, price: d.price };
+    const l = lines.get(type) ?? { type, name: d.name, qty: 0, price: d.price };
     l.qty += qty;
     lines.set(type, l);
   };
@@ -624,6 +624,12 @@ export function EventPanel({ onOrder }: { onOrder: () => void }) {
             </select>
           </Field>
         </div>
+        <Field label="Idioma de la propuesta para el cliente" hint="Vista cliente, propuesta y orden de montaje, comparación y plano de mesas exportado">
+          <select value={ev.language ?? 'es'} onChange={(e) => updateEvent({ language: e.target.value as 'es' | 'en' })}>
+            <option value="es">Español</option>
+            <option value="en">English</option>
+          </select>
+        </Field>
         <p className="hint">
           Plazas en el diseño: {cap.seated} sentadas{cap.standing ? ` · ${cap.standing} de pie` : ''}.
         </p>
