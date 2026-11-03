@@ -207,6 +207,8 @@ export interface Project {
   customCatalog: CatalogDef[];
   event: EventInfo;
   lighting: LightingPreset;
+  /** Enlaces enviados al cliente (propuestas publicadas). */
+  shares?: { id: string; createdAt: number; includeGuests: boolean; variant?: string }[];
   /** Invitados y su mesa en la propuesta actual. */
   guests?: Guest[];
   /** Propuestas alternativas; la activa vive en items/lighting. */

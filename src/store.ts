@@ -29,6 +29,16 @@ interface State {
   measure: MeasurePoint[];
   /** Color recogido con el cuentagotas. */
   picked: string | null;
+  /** Propuesta abierta desde un enlace (cliente): solo lectura y sin guardar. */
+  readOnly: boolean;
+  /** Enlace desde el que se ha abierto (cliente) o cuyos comentarios se están viendo (hotel). */
+  shareId: string | null;
+  /** Comentarios del cliente que se muestran en el plano. */
+  comments: { id: string; n: number; x: number; z: number; resolved: boolean; author: string; body: string }[];
+  /** El cliente está señalando un punto en el plano para su comentario. */
+  pinMode: boolean;
+  pendingPin: { x: number; z: number } | null;
+  setCloud(patch: Partial<Pick<State, 'readOnly' | 'shareId' | 'comments' | 'pinMode' | 'pendingPin'>>): void;
   /** Vértices del contorno que se está dibujando. */
   drawPts: { x: number; z: number }[];
   setDrawPts(p: { x: number; z: number }[]): void;
@@ -54,6 +64,8 @@ interface State {
   applyTemplate(tpl: TableTemplate, tableIds: string[]): void;
   /** Invitados del plano de mesas. */
   setGuests(guests: Guest[]): void;
+  /** Cambia datos generales del proyecto (por ejemplo, los enlaces compartidos). */
+  patchProject(patch: Partial<Project>): void;
   /** Propuestas: crea una copia de la actual (o vacía), cambia, renombra y elimina. */
   createVariant(copy: boolean): void;
   switchVariant(id: string): void;
@@ -128,7 +140,8 @@ export function syncedVariants(p: Project): Variant[] {
 
 let saveTimer: number | undefined;
 function scheduleSave(p: Project | null) {
-  if (!p) return;
+  // Una propuesta abierta desde un enlace no se guarda en el navegador del cliente
+  if (!p || useStore.getState().readOnly) return;
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => db.saveProject({ ...p, updatedAt: Date.now() }), 400);
 }
@@ -155,6 +168,12 @@ export const useStore = create<State>((set, get) => {
     measure: [],
     picked: null,
     drawPts: [],
+    readOnly: false,
+    shareId: null,
+    comments: [],
+    pinMode: false,
+    pendingPin: null,
+    setCloud: (patch) => set(patch),
     setDrawPts: (drawPts) => set({ drawPts }),
     past: [],
     future: [],
@@ -177,7 +196,7 @@ export const useStore = create<State>((set, get) => {
       }),
     closeProject: () => {
       const p = get().project;
-      if (p) db.saveProject({ ...p, updatedAt: Date.now() });
+      if (p && !get().readOnly) db.saveProject({ ...p, updatedAt: Date.now() });
       set({ project: null, selection: [] });
     },
     setPanel: (panel) => set({ panel }),
@@ -213,6 +232,7 @@ export const useStore = create<State>((set, get) => {
       mutate((pr) => ({ ...pr, items: pr.items.map((it) => (moves.has(it.id) ? { ...it, ...moves.get(it.id) } : it)) }));
     },
     setGuests: (guests) => mutate((pr) => ({ ...pr, guests })),
+    patchProject: (patch) => mutate((pr) => ({ ...pr, ...patch })),
     createVariant: (copy) => {
       const p = get().project;
       if (!p) return;

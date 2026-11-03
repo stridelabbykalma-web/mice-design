@@ -1802,3 +1802,127 @@ table.budget {
 .scene-status.error {
   background: var(--err);
 }
+.pin-label {
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  pointer-events: none;
+  user-select: none;
+}
+.shared-loading {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #0f2f52 0%, #0f4c81 100%);
+  color: #fff;
+  padding: 16px;
+  text-align: center;
+}
+.share-sheet h2 {
+  font-size: 16px;
+  margin: 24px 0 8px;
+}
+.share-sheet .btn.primary {
+  margin-top: 6px;
+}
+.share-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.share-list > li {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.share-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.copy-field {
+  margin-top: 8px;
+}
+.copy-field input {
+  font-size: 12px;
+  color: var(--muted);
+}
+.comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+.comment {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--soft);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.comment > div {
+  flex: 1;
+  min-width: 0;
+}
+.comment p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+.comment.resolved {
+  opacity: 0.6;
+}
+.comment-n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 99px;
+  background: var(--err);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.comment.resolved .comment-n {
+  background: var(--ok);
+}
+.client-comments {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  width: min(340px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.97);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.comments-toggle {
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  cursor: pointer;
+}
+.comments-body {
+  padding: 0 16px 14px;
+}
+@media (max-width: 900px) {
+  .client-comments {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    bottom: auto;
+    top: 12px;
+    max-height: 50%;
+  }
+}

@@ -10,6 +10,8 @@ import Survey from './components/Survey';
 import { RectifyHost } from './components/Rectify';
 import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { CompareModal, VariantMenu } from './components/Variants';
+import { ClientComments, ShareModal } from './components/Share';
+import { loadShare, sharedIdFromHash } from './lib/cloud';
 import { normalizeOutline, roomArea } from './lib/outline';
 import { locale, t } from './lib/i18n';
 import GuestsPanel from './components/GuestsPanel';
@@ -110,6 +112,7 @@ function Editor() {
   const st = useStore();
   const [order, setOrder] = useState<{ plan?: string; view?: string } | null>(null);
   const [compare, setCompare] = useState(false);
+  const [share, setShare] = useState(false);
   const [busy, setBusy] = useState('');
   const [mobilePanel, setMobilePanel] = useState(false);
   useKeyboard();
@@ -204,6 +207,9 @@ function Editor() {
             </button>
           </div>
         </details>
+        <button className="btn" onClick={() => setShare(true)} title="Enviar la propuesta al cliente y ver sus comentarios">
+          Compartir
+        </button>
         <button className="btn primary" onClick={() => st.setClientMode(true)} title="Presentación para el cliente">
           Vista cliente
         </button>
@@ -331,6 +337,7 @@ function Editor() {
       </div>
       {order && <OrderSheet images={order} onClose={() => setOrder(null)} />}
       {compare && <CompareModal capture={capture} onClose={() => setCompare(false)} />}
+      {share && <ShareModal onClose={() => setShare(false)} />}
       <RectifyHost />
       <PhotoMeasureHost />
     </div>
@@ -377,9 +384,11 @@ function ClientView() {
           ))}
         </div>
         <div className="spacer" />
-        <button className="btn" onClick={() => st.setClientMode(false)}>
-          {T('Salir de la vista cliente')}
-        </button>
+        {!st.readOnly && (
+          <button className="btn" onClick={() => st.setClientMode(false)}>
+            {T('Salir de la vista cliente')}
+          </button>
+        )}
       </header>
       <main className="viewport">
         <Scene />
@@ -409,7 +418,32 @@ function ClientView() {
           </dl>
           {ev.notes && <p>{ev.notes}</p>}
         </div>
+        {st.readOnly && st.shareId && <ClientComments />}
       </main>
+    </div>
+  );
+}
+
+/** Propuesta abierta desde el enlace enviado al cliente. */
+function SharedLoader({ id }: { id: string }) {
+  const [msg, setMsg] = useState('Abriendo la propuesta… / Opening the proposal…');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    loadShare(id, setMsg)
+      .then((p) => {
+        const st = useStore.getState();
+        st.setCloud({ readOnly: true, shareId: id });
+        st.openProject(p);
+        st.setClientMode(true);
+      })
+      .catch((e) => setError((e as Error).message));
+  }, [id]);
+  return (
+    <div className="shared-loading">
+      <div className="brand">
+        <span className="logo">◆</span> MICE Design
+      </div>
+      {error ? <p className="error">{error}</p> : <p>{msg}</p>}
     </div>
   );
 }
@@ -417,6 +451,8 @@ function ClientView() {
 export default function App() {
   const project = useStore((s) => s.project);
   const [survey, setSurvey] = useState(false);
+  const [sharedId] = useState(sharedIdFromHash);
+  if (sharedId && !project) return <SharedLoader id={sharedId} />;
   if (survey) return <Survey onBack={() => setSurvey(false)} />;
   return project ? <Editor /> : <StartScreen onSurvey={() => setSurvey(true)} />;
 }

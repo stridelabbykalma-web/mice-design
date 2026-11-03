@@ -729,6 +729,33 @@ function MeasureViz() {
   );
 }
 
+/** Comentarios del cliente señalados en el plano (numerados). */
+function CommentPins() {
+  const comments = useStore((s) => s.comments);
+  const pending = useStore((s) => s.pendingPin);
+  const pins = [...comments.filter((c) => Number.isFinite(c.x)), ...(pending ? [{ id: 'nuevo', n: 0, x: pending.x, z: pending.z, resolved: false }] : [])];
+  if (!pins.length) return null;
+  return (
+    <group>
+      {pins.map((c) => (
+        <group key={c.id} position={[c.x, 0, c.z]}>
+          <mesh position={[0, 1.6, 0]}>
+            <sphereGeometry args={[0.18, 16, 12]} />
+            <meshBasicMaterial color={c.resolved ? '#2e8540' : c.id === 'nuevo' ? '#2f80ed' : '#e5484d'} depthTest={false} transparent />
+          </mesh>
+          <mesh position={[0, 0.8, 0]}>
+            <cylinderGeometry args={[0.02, 0.02, 1.6, 6]} />
+            <meshBasicMaterial color={c.resolved ? '#2e8540' : '#e5484d'} depthTest={false} transparent opacity={0.6} />
+          </mesh>
+          <Html zIndexRange={[10, 0]} position={[0, 1.6, 0]} center className="pin-label">
+            {c.n || '+'}
+          </Html>
+        </group>
+      ))}
+    </group>
+  );
+}
+
 /** Contorno que se está dibujando en la planta. */
 function OutlineDraft() {
   const pts = useStore((s) => s.drawPts);
@@ -807,6 +834,12 @@ function Interaction({ wrap }: { wrap: React.RefObject<HTMLDivElement> }) {
       }
       if (!wasClick || hitItemThisPress || !st.project) {
         hitItemThisPress = false;
+        return;
+      }
+      if (st.pinMode) {
+        // El cliente señala en el plano el punto al que se refiere su comentario
+        const p = floorPoint(e, el, camera, raycaster);
+        if (p) st.setCloud({ pendingPin: { x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 }, pinMode: false });
         return;
       }
       if (st.clientMode || st.view === 'paseo') return;
@@ -993,6 +1026,7 @@ export default function Scene() {
         </group>
         <Ghost project={project} />
         <MeasureViz />
+        <CommentPins />
         <OutlineDraft />
         <Interaction wrap={wrap} />
         <ApiBridge root={root} />

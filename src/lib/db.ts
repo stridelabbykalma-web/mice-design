@@ -89,6 +89,11 @@ export function uid(prefix = '') {
   return prefix + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
 
+/** Registra en memoria un archivo descargado (propuestas compartidas) con su id original. */
+export function registerAsset(id: string, blob: Blob, name: string, mime: string) {
+  memAssets.set(id, { id, name, mime, blob });
+}
+
 export async function addAsset(file: Blob, name: string): Promise<string> {
   const id = uid('a_');
   const asset: StoredAsset = { id, name, mime: file.type || 'application/octet-stream', blob: file };
