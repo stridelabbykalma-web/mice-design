@@ -30,13 +30,13 @@
 ## 2. Mejoras de la app
 
 Elegidas:
-- [ ] Catálogo del hotel compartido entre proyectos: mobiliario escaneado, salas reutilizables y **mesas decoradas** guardadas como plantilla (cada pieza sigue siendo editable).
-- [ ] Varias propuestas por evento (A, B, C) para comparar montajes.
-- [ ] Compartir la propuesta con el cliente por enlace, con comentarios (requiere un backend, por ejemplo Supabase).
-- [ ] Salas con cualquier forma (polígono).
-- [ ] Gaussian splatting para un realismo casi fotográfico.
-- [ ] Plano de mesas con invitados (importación CSV).
-- [ ] Inglés como idioma opcional (español por defecto).
+- [x] Catálogo del hotel compartido entre proyectos: mobiliario escaneado, salas reutilizables y **mesas decoradas** guardadas como plantilla (cada pieza sigue siendo editable).
+- [x] Varias propuestas por evento (A, B, C) para comparar montajes.
+- [ ] Compartir la propuesta con el cliente por enlace, con comentarios (requiere un backend, por ejemplo Supabase; pendiente de crear la cuenta).
+- [x] Salas con cualquier forma (polígono).
+- [x] Gaussian splatting para un realismo casi fotográfico.
+- [x] Plano de mesas con invitados (importación CSV).
+- [x] Inglés como idioma opcional en lo que ve el cliente (vista cliente, propuesta, comparación y plano de mesas); el editor sigue en español.
 
 Descartadas o aplazadas:
 - PDF real de la orden de montaje (se mantiene la impresión del navegador).
