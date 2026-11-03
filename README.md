@@ -49,6 +49,14 @@ La guía de captura que aparece en la app (luz uniforme, sin flash, 60-70 % de s
 
 El ejemplo *Gemelo digital de una sala* usa un **escaneo simulado** (`src/assets/salon-escaneado.glb`, generado con `tools/sala_ejemplo.py`) para demostrar el flujo. Para el caso práctico del TFG hay que sustituirlo por el escaneo real del hotel.
 
+## Novedades
+
+- **Catálogo del hotel compartido**: muebles escaneados, salas y *mesas decoradas* se guardan una vez y sirven para todos los eventos (con copia de seguridad `.mice-hotel.json`). La decoración de mesa (cubiertos, bajoplatos, copas, velas, candelabros, centros florales, número de mesa, carta, camino) se apoya sola en la mesa y se mueve y gira con ella; se puede copiar a todas las mesas iguales o aplicar en los montajes automáticos.
+- **Varias propuestas por evento** (A, B, C…): cada una con su montaje, decoración, luz e invitados; comparación lado a lado (aforo, seguridad, presupuesto y plano) y cambio de propuesta en la vista cliente.
+- **Salas con cualquier forma**: contorno poligonal (formas en L, U o T, dibujo con clics sobre el plano o vértices a mano) que siguen paredes, suelo, techo, cotas, montajes, aforo y seguridad. La medición de RoomPlan reconstruye el contorno real.
+- **Plano de mesas con invitados**: importación CSV, asignación automática que mantiene juntos a los grupos, ocupación por mesa, resumen de dietas y alergias para cocina, exportación CSV y plano en la orden de montaje.
+- **Gaussian splatting**: importación de capturas `.ply`, `.splat` o `.ksplat` para un realismo casi fotográfico (la librería se carga solo cuando se usa).
+
 ## Funcionalidades (objetivos OE5 y OE6)
 
 | Área | Qué hace |

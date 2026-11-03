@@ -168,6 +168,7 @@ export default function SpacePanel() {
         if (method === 'satelite') return <SatelliteSection key={method} primary={primary} onImage={setUnderlayFile} />;
         return <VideoSection key={method} primary={primary} />;
       })}
+      <SplatSection />
     </div>
   );
 }
@@ -790,5 +791,72 @@ function ShapeEditor() {
         </table>
       )}
     </details>
+  );
+}
+
+/** Gaussian splatting: captura casi fotográfica de la sala (Polycam, Scaniverse, Luma, Postshot…). */
+function SplatSection() {
+  const project = useStore((s) => s.project)!;
+  const updateSpace = useStore((s) => s.updateSpace);
+  const sp = project.space.splat;
+  const [msg, setMsg] = useState('');
+  const set = (patch: Partial<NonNullable<typeof sp>>) => sp && updateSpace({ splat: { ...sp, ...patch } });
+  return (
+    <Section title="✨ Gaussian splatting (realismo fotográfico)" defaultOpen={!!sp}>
+      <p className="hint">
+        Importa la sala capturada como <em>splat</em> (.ply, .splat o .ksplat; lo exportan Scaniverse, Polycam, Luma o Postshot). Se ve prácticamente como un vídeo, incluidos
+        brillos, cristales y lámparas, y el evento se monta encima.
+      </p>
+      <FileButton
+        accept=".ply,.splat,.ksplat"
+        onFile={async (f) => {
+          const ext = f.name.toLowerCase().split('.').pop();
+          const format = ext === 'splat' ? 'splat' : ext === 'ksplat' ? 'ksplat' : 'ply';
+          const id = await addAsset(f, f.name);
+          updateSpace({
+            splat: { assetId: id, name: f.name, format, scale: 1, rotation: 0, tilt: format === 'ply' ? 180 : 0, offsetX: 0, offsetY: 0, offsetZ: 0 },
+            showWalls: false,
+          });
+          setMsg('Cargando… Si la sala aparece boca abajo o tumbada, corrige el eje vertical. Ajusta la escala midiendo una puerta con «Medir».');
+        }}
+      >
+        {sp ? 'Cambiar splat' : 'Importar splat de la sala'}
+      </FileButton>
+      {msg && <p className="hint">{msg}</p>}
+      {sp && (
+        <div className="sub">
+          <p className="muted">{sp.name}</p>
+          <Field label="Eje vertical">
+            <select value={sp.tilt} onChange={(e) => set({ tilt: parseFloat(e.target.value) })}>
+              <option value={0}>Correcto (Y hacia arriba)</option>
+              <option value={180}>Boca abajo (Y hacia abajo)</option>
+              <option value={-90}>Z hacia arriba</option>
+              <option value={90}>−Z hacia arriba</option>
+            </select>
+          </Field>
+          <div className="grid2">
+            <Field label="Escala">
+              <NumberInput value={sp.scale} step={0.01} min={0.001} onChange={(scale) => set({ scale })} />
+            </Field>
+            <Field label="Giro">
+              <NumberInput value={sp.rotation} step={1} onChange={(rotation) => set({ rotation })} suffix="°" />
+            </Field>
+            <Field label="Desplazar X">
+              <NumberInput value={sp.offsetX} onChange={(offsetX) => set({ offsetX })} suffix="m" />
+            </Field>
+            <Field label="Desplazar Z">
+              <NumberInput value={sp.offsetZ} onChange={(offsetZ) => set({ offsetZ })} suffix="m" />
+            </Field>
+            <Field label="Altura del suelo">
+              <NumberInput value={sp.offsetY} step={0.01} onChange={(offsetY) => set({ offsetY })} suffix="m" />
+            </Field>
+          </div>
+          <p className="hint">Ajusta las medidas del espacio (arriba) a las de la sala para que el aforo y los montajes sean correctos. Con splats no está disponible «Vaciar la sala».</p>
+          <button className="btn small danger" onClick={() => updateSpace({ splat: undefined, showWalls: !project.space.outdoor && !project.space.model })}>
+            Quitar splat
+          </button>
+        </div>
+      )}
+    </Section>
   );
 }

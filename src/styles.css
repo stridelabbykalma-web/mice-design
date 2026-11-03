@@ -1787,3 +1787,18 @@ table.budget {
   margin: 4px 0 0;
   padding-left: 18px;
 }
+.scene-status {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  background: rgba(29, 36, 48, 0.88);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 99px;
+  font-size: 13px;
+  max-width: calc(100% - 24px);
+}
+.scene-status.error {
+  background: var(--err);
+}

@@ -37,6 +37,20 @@ export interface ImportedModel {
   keepCeiling?: number;
 }
 
+export interface SplatScene {
+  assetId: string;
+  name: string;
+  format: 'ply' | 'splat' | 'ksplat';
+  scale: number;
+  /** Giro alrededor del eje vertical (grados). */
+  rotation: number;
+  /** Corrección del eje vertical (grados sobre X); muchas capturas vienen con Y hacia abajo (180). */
+  tilt: number;
+  offsetX: number;
+  offsetY: number;
+  offsetZ: number;
+}
+
 /** Foto real de una pared o del suelo aplicada como textura. */
 export interface PhotoTexture {
   assetId: string;
@@ -61,6 +75,8 @@ export interface Space {
   wallColor: string;
   underlay?: Underlay;
   model?: ImportedModel;
+  /** Captura fotorrealista por Gaussian splatting (.ply, .splat, .ksplat). */
+  splat?: SplatScene;
   wallPhotos?: Partial<Record<WallSide, PhotoTexture>>;
   /** Contorno de la sala si no es rectangular (metros, centrado en el origen). */
   outline?: { x: number; z: number }[];

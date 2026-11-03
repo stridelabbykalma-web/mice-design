@@ -6,4 +6,6 @@ export const sceneApi: {
   scene?: THREE.Scene;
   exportRoot?: THREE.Object3D;
   modelObject?: THREE.Object3D | null;
+  /** Estado de carga del Gaussian splatting. */
+  splatStatus?: 'loading' | 'ok' | 'error' | null;
 } = {};

@@ -128,6 +128,7 @@ export function projectAssetIds(p: Project): string[] {
   const ids = new Set<string>();
   if (p.space.underlay) ids.add(p.space.underlay.assetId);
   if (p.space.model) ids.add(p.space.model.assetId);
+  if (p.space.splat) ids.add(p.space.splat.assetId);
   if (p.space.videoAssetId) ids.add(p.space.videoAssetId);
   p.customCatalog.forEach((c) => c.modelAssetId && ids.add(c.modelAssetId));
   Object.values(p.space.wallPhotos ?? {}).forEach((w) => w && ids.add(w.assetId));

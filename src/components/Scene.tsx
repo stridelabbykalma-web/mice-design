@@ -18,10 +18,11 @@ import { attachedDecor, isDecorDef, isTableDef, onTableTop, tableAt } from '../l
 export { sceneApi };
 
 // Estado efímero de interacción (no se guarda en el proyecto).
-const useInteraction = create<{ dragging: boolean; ghost: THREE.Vector3 | null; walkLocked: boolean }>(() => ({
+const useInteraction = create<{ dragging: boolean; ghost: THREE.Vector3 | null; walkLocked: boolean; splat: 'loading' | 'ok' | 'error' | null }>(() => ({
   dragging: false,
   ghost: null,
   walkLocked: false,
+  splat: null,
 }));
 
 let hitItemThisPress = false;
@@ -293,6 +294,59 @@ function edgePhoto(space: Space, i: number) {
   return space.wallPhotos?.[RECT_SIDES[i]];
 }
 
+/**
+ * Escena de Gaussian splatting: millones de «manchas» con color y transparencia que
+ * reproducen la sala casi como una fotografía. La librería se carga solo cuando hace falta.
+ */
+function SplatSpace({ space }: { space: Space }) {
+  const sp = space.splat;
+  const holder = useRef<THREE.Group>(null);
+  const [status, setStatus] = useState<'loading' | 'ok' | 'error' | null>(null);
+  useEffect(() => {
+    if (!sp) return;
+    let alive = true;
+    let viewer: (THREE.Object3D & { dispose?: () => Promise<void> | void; addSplatScene: (p: string, o: object) => Promise<void> }) | null = null;
+    setStatus('loading');
+    (async () => {
+      try {
+        const [GS, url] = await Promise.all([import('@mkkellogg/gaussian-splats-3d'), assetUrl(sp.assetId)]);
+        if (!alive || !url || !holder.current) return;
+        viewer = new GS.DropInViewer({ gpuAcceleratedSort: false, sharedMemoryForWorkers: false, dynamicScene: false, sceneRevealMode: 2 /* instantánea */ }) as unknown as typeof viewer;
+        holder.current.add(viewer!);
+        const format = { ply: GS.SceneFormat.Ply, splat: GS.SceneFormat.Splat, ksplat: GS.SceneFormat.KSplat }[sp.format];
+        await viewer!.addSplatScene(url, { format, showLoadingUI: false, splatAlphaRemovalThreshold: 5, progressiveLoad: false });
+        if (alive) setStatus('ok');
+      } catch (e) {
+        console.warn('Gaussian splatting', e);
+        if (alive) setStatus('error');
+      }
+    })();
+    return () => {
+      alive = false;
+      if (viewer) {
+        holder.current?.remove(viewer);
+        try {
+          viewer.dispose?.();
+        } catch {
+          /* noop */
+        }
+      }
+    };
+  }, [sp?.assetId, sp?.format]);
+  useEffect(() => {
+    sceneApi.splatStatus = status;
+    useInteraction.setState({ splat: sp ? status : null });
+  }, [status, sp]);
+  if (!sp) return null;
+  return (
+    <group position={[sp.offsetX, sp.offsetY, sp.offsetZ]} rotation={[0, sp.rotation * DEG, 0]} scale={sp.scale}>
+      <group rotation={[sp.tilt * DEG, 0, 0]}>
+        <group ref={holder} />
+      </group>
+    </group>
+  );
+}
+
 function Walls({ space, view }: { space: Space; view: string }) {
   const refs = useRef<(THREE.Group | null)[]>([]);
   const t = 0.15;
@@ -417,7 +471,7 @@ function Floor({ space, view }: { space: Space; view: string }) {
   const border = useMemo(() => [...outline, outline[0]].map((p) => new THREE.Vector3(p.x, 0.02, p.z)), [outline]);
   const floorGeo = useMemo(() => roomShapeGeometry(space, 'suelo'), [space.outline, W, D]);
   const isPoly = !!space.outline && space.outline.length >= 3;
-  const hideFloor = !!space.model && !space.showWalls;
+  const hideFloor = (!!space.model || !!space.splat) && !space.showWalls;
   return (
     <>
       {space.outdoor && (
@@ -916,6 +970,7 @@ export default function Scene() {
   const view = useStore((s) => s.view);
   const tool = useStore((s) => s.tool);
   const walkLocked = useInteraction((s) => s.walkLocked);
+  const splat = useInteraction((s) => s.splat);
   const wrap = useRef<HTMLDivElement>(null);
   const root = useRef<THREE.Group>(null);
   const { space } = project;
@@ -928,6 +983,7 @@ export default function Scene() {
           <Floor space={space} view={view} />
           <UnderlayMesh space={space} />
           <ScannedSpace space={space} view={view} />
+          <SplatSpace space={space} />
           {space.showWalls && !space.outdoor && <Walls space={space} view={view} />}
           <Items project={project} view={view} />
         </group>
@@ -937,6 +993,8 @@ export default function Scene() {
         <Interaction wrap={wrap} />
         <ApiBridge root={root} />
       </Canvas>
+      {splat === 'loading' && <div className="scene-status">Cargando la captura fotorrealista…</div>}
+      {splat === 'error' && <div className="scene-status error">No se pudo abrir el splat. Comprueba que es un .ply de Gaussian splatting, un .splat o un .ksplat.</div>}
       {view === 'paseo' && !walkLocked && (
         <div className="walk-overlay">
           <button id="walk-start" className="btn primary">
