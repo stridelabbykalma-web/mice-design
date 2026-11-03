@@ -7,6 +7,7 @@ import SpacePanel, { VideoReference } from './components/SpacePanel';
 import { CatalogPanel, EventPanel, LayoutPanel, PropertiesPanel, SafetyPanel } from './components/Panels';
 import OrderSheet from './components/OrderSheet';
 import Survey from './components/Survey';
+import { RectifyHost } from './components/Rectify';
 import { downloadBlob, exportProject } from './lib/db';
 import { analyze, capacitySummary } from './lib/safety';
 import { LAYOUT_INFO } from './lib/layouts';
@@ -287,6 +288,7 @@ function Editor() {
         </main>
       </div>
       {order && <OrderSheet images={order} onClose={() => setOrder(null)} />}
+      <RectifyHost />
     </div>
   );
 }

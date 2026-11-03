@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import type { SpaceMethod, WallSide } from '../types';
 import { addAsset, assetUrl, downloadBlob } from '../lib/db';
 import { loadGltf } from './Furniture';
+import { requestRectify } from './Rectify';
 import { geocode, satelliteImage, SAT_ATTRIBUTION } from '../lib/satellite';
 import { makeZip } from '../lib/zip';
 import { DEG } from '../lib/geometry';
@@ -490,77 +491,111 @@ export function VideoReference() {
   );
 }
 
-const WALL_LABEL: Record<WallSide, string> = {
-  norte: 'Pared del frente (arriba en planta)',
-  sur: 'Pared del fondo',
-  oeste: 'Pared izquierda',
-  este: 'Pared derecha',
-};
+type Surface = WallSide | 'suelo' | 'techo';
 
-/** Fotos reales de paredes y suelo, y cuentagotas para reproducir los colores del espacio. */
+const SURFACES: { id: Surface; label: string; help: string }[] = [
+  { id: 'norte', label: 'Pared del frente', help: 'La pared del escenario o la pantalla (arriba en la vista en planta).' },
+  { id: 'este', label: 'Pared derecha', help: 'Mirando hacia el frente, la pared de tu derecha.' },
+  { id: 'sur', label: 'Pared del fondo', help: 'La pared opuesta al frente, normalmente la de la entrada.' },
+  { id: 'oeste', label: 'Pared izquierda', help: 'Mirando hacia el frente, la pared de tu izquierda.' },
+  { id: 'suelo', label: 'Suelo', help: 'Una muestra del suelo: una baldosa, un tramo de parqué o de moqueta.' },
+  { id: 'techo', label: 'Techo', help: 'El techo completo, fotografiado desde el centro de la sala.' },
+];
+
+/**
+ * Captura de la sala desde la propia app: una foto por superficie con la cámara del móvil,
+ * corrección de perspectiva marcando las 4 esquinas y colocación a escala real.
+ */
 function RealSurfaces() {
   const project = useStore((s) => s.project)!;
   const updateSpace = useStore((s) => s.updateSpace);
   const setTool = useStore((s) => s.setTool);
   const { space } = project;
+  const [busy, setBusy] = useState<Surface | null>(null);
   if (space.outdoor) return null;
-  const setWall = async (side: WallSide, f: File) => {
-    const id = await addAsset(f, f.name);
-    updateSpace({ wallPhotos: { ...(space.wallPhotos ?? {}), [side]: { assetId: id } }, showWalls: space.model ? space.showWalls : true });
+
+  const has = (id: Surface) => (id === 'suelo' ? !!space.floorPhoto : id === 'techo' ? !!space.ceilingPhoto : !!space.wallPhotos?.[id]);
+  const done = SURFACES.filter((x) => has(x.id)).length;
+
+  const capture = async (id: Surface, f: File) => {
+    setBusy(id);
+    const len = id === 'norte' || id === 'sur' ? space.width : space.depth;
+    const sf = SURFACES.find((x) => x.id === id)!;
+    const help =
+      id === 'suelo'
+        ? 'Arrastra las 4 esquinas hasta los bordes de una baldosa o de un trozo de suelo cuyo tamaño conozcas.'
+        : id === 'techo'
+          ? 'Arrastra las 4 esquinas hasta las esquinas del techo (arriba = lado del frente).'
+          : `Arrastra las 4 esquinas hasta donde la pared se une con el techo y con el suelo. Se colocará a escala: ${m(len, 1)} × ${m(space.height, 1)} m.`;
+    const aspect = id === 'suelo' ? undefined : id === 'techo' ? space.width / space.depth : len / space.height;
+    const r = await requestRectify(f, `${sf.label}: marca las esquinas`, help, aspect);
+    if (r) {
+      const id_ = await addAsset(new File([r.blob], `${id}.jpg`, { type: 'image/jpeg' }), `${id}.jpg`);
+      if (id === 'suelo') updateSpace({ floorPhoto: { assetId: id_, tileM: space.floorPhoto?.tileM ?? 0.6 } });
+      else if (id === 'techo') updateSpace({ ceilingPhoto: { assetId: id_ } });
+      else updateSpace({ wallPhotos: { ...(space.wallPhotos ?? {}), [id]: { assetId: id_ } }, showWalls: space.model ? space.showWalls : true });
+    }
+    setBusy(null);
   };
-  const clearWall = (side: WallSide) => {
+
+  const clear = (id: Surface) => {
+    if (id === 'suelo') return updateSpace({ floorPhoto: undefined });
+    if (id === 'techo') return updateSpace({ ceilingPhoto: undefined });
     const next = { ...(space.wallPhotos ?? {}) };
-    delete next[side];
+    delete next[id];
     updateSpace({ wallPhotos: next });
   };
+
   return (
-    <Section title="🖼️ Paredes, suelo y colores reales" defaultOpen={!space.model}>
+    <Section title="📱 Capturar la sala con la cámara" badge={`${done}/6`} defaultOpen={!space.model}>
       <p className="hint">
-        Si no tienes el escaneo completo, fotografía cada pared de frente (de esquina a esquina, del suelo al techo) y el suelo. Las fotos se aplican a escala sobre el espacio,
-        con sus cuadros, molduras y colores.
+        Sin apps externas: fotografía cada superficie con el móvil, marca sus 4 esquinas y la app endereza la foto y la coloca a escala sobre el espacio. Comprueba antes que las
+        medidas del espacio (ancho, fondo y altura) son las reales.
       </p>
+      <details className="guide">
+        <summary>Consejos para que la sala quede fiel</summary>
+        <ul>
+          <li>Enciende todas las luces de la sala y no uses flash.</li>
+          <li>Fotografía cada pared desde el centro de la pared opuesta, con el móvil recto y la pared entera en la foto (usa el gran angular o el modo panorámico en salas largas).</li>
+          <li>Coloca las esquinas justo donde la pared toca el techo y el suelo.</li>
+          <li>Los relieves (molduras, apliques) quedan como imagen plana; para tener su volumen, escanéalos aparte como decoración.</li>
+        </ul>
+      </details>
       <ul className="photo-slots">
-        {(Object.keys(WALL_LABEL) as WallSide[]).map((side) => (
-          <li key={side}>
-            <span>{WALL_LABEL[side]}</span>
-            <FileButton accept="image/*" className="btn small" onFile={(f) => setWall(side, f)}>
-              {space.wallPhotos?.[side] ? 'Cambiar foto' : 'Subir foto'}
-            </FileButton>
-            {space.wallPhotos?.[side] && (
-              <button className="icon-btn" title="Quitar foto" onClick={() => clearWall(side)}>
-                ✕
-              </button>
+        {SURFACES.map((x) => (
+          <li key={x.id}>
+            <span className={has(x.id) ? 'slot-done' : ''} title={x.help}>
+              {has(x.id) ? '✓ ' : ''}
+              {x.label}
+            </span>
+            {busy === x.id ? (
+              <span className="muted">Procesando…</span>
+            ) : (
+              <>
+                <FileButton accept="image/*" camera className="btn small" onFile={(f) => capture(x.id, f)}>
+                  📷 Foto
+                </FileButton>
+                <FileButton accept="image/*" className="btn small ghost" onFile={(f) => capture(x.id, f)}>
+                  Subir
+                </FileButton>
+                {has(x.id) && (
+                  <button className="icon-btn" title="Quitar" onClick={() => clear(x.id)}>
+                    ✕
+                  </button>
+                )}
+              </>
             )}
           </li>
         ))}
-        <li>
-          <span>Suelo (moqueta, parqué, mármol…)</span>
-          <FileButton
-            accept="image/*"
-            className="btn small"
-            onFile={async (f) => {
-              const id = await addAsset(f, f.name);
-              updateSpace({ floorPhoto: { assetId: id, tileM: space.floorPhoto?.tileM ?? 1 } });
-            }}
-          >
-            {space.floorPhoto ? 'Cambiar foto' : 'Subir foto'}
-          </FileButton>
-          {space.floorPhoto && (
-            <button className="icon-btn" title="Quitar foto" onClick={() => updateSpace({ floorPhoto: undefined })}>
-              ✕
-            </button>
-          )}
-        </li>
       </ul>
       {space.floorPhoto && (
-        <Field label="Tamaño real del trozo de suelo fotografiado" hint="Por ejemplo, una baldosa de 0,6 m o un tramo de moqueta de 1 m; se repite como un mosaico.">
-          <NumberInput value={space.floorPhoto.tileM ?? 1} min={0.05} max={20} onChange={(tileM) => updateSpace({ floorPhoto: { ...space.floorPhoto!, tileM } })} suffix="m" />
+        <Field label="Ancho real de la muestra de suelo" hint="Lo que mide de lado la baldosa o el trozo marcado; se repite como un mosaico.">
+          <NumberInput value={space.floorPhoto.tileM ?? 0.6} min={0.05} max={20} onChange={(tileM) => updateSpace({ floorPhoto: { ...space.floorPhoto!, tileM } })} suffix="m" />
         </Field>
       )}
       <button className="btn small" onClick={() => setTool('eyedropper')}>
         Coger un color del espacio (cuentagotas)
       </button>
-      <p className="hint">Haz clic en el escaneo o en una foto para copiar su color real y aplicarlo a paredes, suelo o mantelerías.</p>
     </Section>
   );
 }

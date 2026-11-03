@@ -82,13 +82,27 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
-export function FileButton({ accept, onFile, children, className = 'btn' }: { accept: string; onFile: (f: File) => void; children: ReactNode; className?: string }) {
+export function FileButton({
+  accept,
+  onFile,
+  children,
+  className = 'btn',
+  camera = false,
+}: {
+  accept: string;
+  onFile: (f: File) => void;
+  children: ReactNode;
+  className?: string;
+  /** En el móvil abre directamente la cámara trasera. */
+  camera?: boolean;
+}) {
   return (
     <label className={className}>
       {children}
       <input
         type="file"
         accept={accept}
+        capture={camera ? 'environment' : undefined}
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0];

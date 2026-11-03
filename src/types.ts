@@ -63,6 +63,7 @@ export interface Space {
   model?: ImportedModel;
   wallPhotos?: Partial<Record<WallSide, PhotoTexture>>;
   floorPhoto?: PhotoTexture;
+  ceilingPhoto?: PhotoTexture;
   videoAssetId?: string;
 }
 

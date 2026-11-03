@@ -116,6 +116,7 @@ export function projectAssetIds(p: Project): string[] {
   p.customCatalog.forEach((c) => c.modelAssetId && ids.add(c.modelAssetId));
   Object.values(p.space.wallPhotos ?? {}).forEach((w) => w && ids.add(w.assetId));
   if (p.space.floorPhoto) ids.add(p.space.floorPhoto.assetId);
+  if (p.space.ceilingPhoto) ids.add(p.space.ceilingPhoto.assetId);
   p.items.forEach((i) => i.imageAssetId && ids.add(i.imageAssetId));
   return [...ids];
 }

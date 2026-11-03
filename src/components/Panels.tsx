@@ -5,6 +5,7 @@ import type { CatalogDef, Category, Item, LayoutType } from '../types';
 import { BASE_CATALOG, CATEGORY_LABELS, findDef, itemCapacity, itemDims } from '../catalog';
 import { addAsset, uid } from '../lib/db';
 import { loadGltf } from './Furniture';
+import { requestRectify } from './Rectify';
 import { LAYOUT_INFO, LayoutOptions, defaultOptions, generateLayout, generatedTypes } from '../lib/layouts';
 import { analyze, capacitySummary } from '../lib/safety';
 import { ConfirmButton, Field, FileButton, NumberInput, Section, Toggle, eur, m } from './ui';
@@ -439,20 +440,17 @@ export function PropertiesPanel() {
       {items.length === 1 && first.type === 'cuadro' && (
         <div className="callout">
           <strong>Obra real</strong>
-          <p className="hint">Fotografía el cuadro de frente y recórtalo al borde del lienzo. El alto se ajusta a la proporción de la foto.</p>
+          <p className="hint">Haz una foto al cuadro (aunque sea de lado) y marca sus esquinas: la app la endereza. Indica su ancho real y el alto se calcula solo.</p>
           <FileButton
             accept="image/*"
             className="btn small"
+            camera
             onFile={async (f) => {
-              const id = await addAsset(f, f.name);
-              const aspect = await new Promise<number>((res) => {
-                const img = new Image();
-                img.onload = () => res(img.naturalHeight / img.naturalWidth || 0.75);
-                img.onerror = () => res(0.75);
-                img.src = URL.createObjectURL(f);
-              });
+              const r = await requestRectify(f, 'Cuadro: marca las esquinas del lienzo', 'Arrastra las 4 esquinas hasta los bordes del cuadro (sin el marco) para enderezarlo aunque la foto esté hecha de lado.');
+              if (!r) return;
+              const id = await addAsset(new File([r.blob], 'cuadro.jpg', { type: 'image/jpeg' }), 'cuadro.jpg');
               const w = itemDims(first, def).w;
-              updateItems([first.id], () => ({ imageAssetId: id, h: Math.round(w * aspect * 100) / 100 }));
+              updateItems([first.id], () => ({ imageAssetId: id, h: Math.round((w / r.aspect) * 100) / 100 }));
             }}
           >
             {first.imageAssetId ? 'Cambiar foto del cuadro' : 'Subir foto del cuadro'}

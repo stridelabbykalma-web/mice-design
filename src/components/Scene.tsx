@@ -276,7 +276,8 @@ function WallPhoto({ assetId, w, h, offset }: { assetId: string; w: number; h: n
   return (
     <mesh position={[0, 0, offset]}>
       <planeGeometry args={[w, h]} />
-      <meshStandardMaterial map={tex} roughness={0.9} transparent />
+      {/* Colores reales de la foto, sin el sombreado simulado */}
+      <meshBasicMaterial map={tex} transparent />
     </mesh>
   );
 }
@@ -328,13 +329,28 @@ function Walls({ space, view }: { space: Space; view: string }) {
           </group>
         );
       })}
-      {view === 'paseo' && (
-        <mesh position={[0, H + 0.01, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <planeGeometry args={[W, D]} />
-          <meshStandardMaterial color="#f4f1ec" side={THREE.DoubleSide} />
-        </mesh>
-      )}
+      {view === 'paseo' && <Ceiling space={space} />}
     </>
+  );
+}
+
+/** Techo (solo en el paseo): liso o con la foto real, con el lado del frente arriba en la imagen. */
+function Ceiling({ space }: { space: Space }) {
+  const tex = useAssetTexture(space.ceilingPhoto?.assetId);
+  const map = useMemo(() => {
+    if (!tex) return null;
+    const t = tex.clone();
+    t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, -1);
+    t.offset.set(0, 1);
+    t.needsUpdate = true;
+    return t;
+  }, [tex]);
+  return (
+    <mesh position={[0, space.height + 0.01, 0]} rotation={[Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[space.width, space.depth]} />
+      {map ? <meshBasicMaterial map={map} side={THREE.DoubleSide} /> : <meshStandardMaterial color="#f4f1ec" side={THREE.DoubleSide} />}
+    </mesh>
   );
 }
 

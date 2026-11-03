@@ -76,6 +76,12 @@ Los proyectos se guardan automáticamente en el navegador (IndexedDB). Para pasa
   - `src/components/Survey.tsx`: módulo de evaluación SUS/TAM.
 - **Convención de ejes**: el espacio está centrado en el origen, X es el ancho y Z el fondo; el frente (escenario o pantalla) está en Z negativa, en la parte superior de la vista en planta. Las unidades son metros.
 
+## Captura de la sala desde la propia app (sin apps externas)
+
+En *Espacio → Capturar la sala con la cámara* se fotografía cada superficie (cuatro paredes, suelo y techo) con el móvil. Después se arrastran sus cuatro esquinas sobre la foto y la app **corrige la perspectiva** (homografía) y la coloca a escala sobre las medidas reales del espacio, aunque la foto esté hecha de lado. Las fotos se muestran con sus colores reales. El mismo editor sirve para enderezar la foto de cada cuadro.
+
+Limitación: las paredes quedan planas y los relieves (molduras, apliques) son imagen. Para tener volumen exacto hay que hacer un escaneo 3D completo (fotogrametría o LiDAR), que requiere un procesado pesado que hoy no es viable dentro del navegador, o escanear esas piezas aparte como decoración.
+
 ## Escáner Revopoint Inspire 2 (mobiliario y decoración)
 
 El escáner de mano se usa para digitalizar **piezas**: sillas, mesas, sofás, lámparas, jarrones, esculturas, molduras o elementos decorativos sueltos. Para la **sala entera** es mejor la fotogrametría o el LiDAR del móvil, porque el escáner trabaja a poca distancia y escanear un salón con él sería lentísimo.
