@@ -5,6 +5,7 @@ import type { SpaceMethod, WallSide } from '../types';
 import { addAsset, assetUrl, downloadBlob } from '../lib/db';
 import { loadGltf } from './Furniture';
 import { requestRectify } from './Rectify';
+import { openPhotoMeasure } from './PhotoMeasure';
 import { geocode, satelliteImage, SAT_ATTRIBUTION } from '../lib/satellite';
 import { makeZip } from '../lib/zip';
 import { DEG } from '../lib/geometry';
@@ -64,6 +65,20 @@ export default function SpacePanel() {
           <Field label="Altura">
             <NumberInput value={space.height} min={2} max={30} onChange={(height) => updateSpace({ height })} suffix="m" />
           </Field>
+        </div>
+        <div className="callout">
+          <strong>📏 ¿No tienes las medidas?</strong>
+          <p className="hint">
+            Mide un tramo grande de una pared (con la app Medidas del móvil o un metro), hazle una foto a la pared entera y la app calcula su ancho y su alto.
+          </p>
+          <div className="row gap">
+            <FileButton accept="image/*" camera className="btn small" onFile={openPhotoMeasure}>
+              📷 Medir una pared con foto
+            </FileButton>
+            <FileButton accept="image/*" className="btn small ghost" onFile={openPhotoMeasure}>
+              Subir foto
+            </FileButton>
+          </div>
         </div>
         <p className="hint">
           Superficie: <strong>{m(space.width * space.depth, 1)} m²</strong>. El frente del espacio (escenario, pantalla) se sitúa en la pared superior de la vista en planta.

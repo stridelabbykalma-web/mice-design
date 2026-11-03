@@ -102,3 +102,56 @@ export async function rectify(img: HTMLImageElement, q: Pt[], outW: number, outH
   octx.putImageData(out, 0, 0);
   return new Promise((res, rej) => oc.toBlob((bl) => (bl ? res(bl) : rej(new Error('canvas'))), 'image/jpeg', 0.9));
 }
+
+/** Homografía general entre dos cuadriláteros (src → dst). */
+export function homography(src: Pt[], dst: Pt[]) {
+  const A: number[][] = [];
+  const b: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const { x, y } = src[i];
+    const { x: u, y: v } = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+    b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+    b.push(v);
+  }
+  const h = solveLinear(A, b);
+  return (x: number, y: number): Pt => {
+    const w = h[6] * x + h[7] * y + 1;
+    return { x: (h[0] * x + h[1] * y + h[2]) / w, y: (h[3] * x + h[4] * y + h[5]) / w };
+  };
+}
+
+/**
+ * Metrología plana: a partir de un rectángulo de referencia de tamaño real conocido (folio,
+ * puerta, baldosa) marcado en la foto, convierte puntos de la imagen a metros sobre ese plano.
+ */
+export function planeMeter(refQuad: Pt[], refW: number, refH: number) {
+  const toPlane = homography(refQuad, [
+    { x: 0, y: 0 },
+    { x: refW, y: 0 },
+    { x: refW, y: refH },
+    { x: 0, y: refH },
+  ]);
+  return (a: Pt, b: Pt) => {
+    const A = toPlane(a.x, a.y);
+    const B = toPlane(b.x, b.y);
+    return Math.hypot(A.x - B.x, A.y - B.y);
+  };
+}
+
+function solveLinear(A: number[][], b: number[]) {
+  const n = b.length;
+  const M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = M[r][c] / M[c][c];
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return M.map((r, i) => r[n] / r[i]);
+}

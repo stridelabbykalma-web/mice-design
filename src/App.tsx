@@ -8,6 +8,7 @@ import { CatalogPanel, EventPanel, LayoutPanel, PropertiesPanel, SafetyPanel } f
 import OrderSheet from './components/OrderSheet';
 import Survey from './components/Survey';
 import { RectifyHost } from './components/Rectify';
+import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { downloadBlob, exportProject } from './lib/db';
 import { analyze, capacitySummary } from './lib/safety';
 import { LAYOUT_INFO } from './lib/layouts';
@@ -289,6 +290,7 @@ function Editor() {
       </div>
       {order && <OrderSheet images={order} onClose={() => setOrder(null)} />}
       <RectifyHost />
+      <PhotoMeasureHost />
     </div>
   );
 }

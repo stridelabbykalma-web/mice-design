@@ -82,6 +82,23 @@ En *Espacio → Capturar la sala con la cámara* se fotografía cada superficie 
 
 Limitación: las paredes quedan planas y los relieves (molduras, apliques) son imagen. Para tener volumen exacto hay que hacer un escaneo 3D completo (fotogrametría o LiDAR), que requiere un procesado pesado que hoy no es viable dentro del navegador, o escanear esas piezas aparte como decoración.
 
+## Medir una pared con una foto (cualquier móvil, sin LiDAR ni realidad aumentada)
+
+En *Espacio → Medir una pared con foto*: se marca en la foto un rectángulo de la pared cuyo tamaño real se ha medido una vez (con la app Medidas del iPhone o con un metro) y las cuatro esquinas de la pared. Con una homografía entre ambos (metrología plana) la app calcula el ancho y el alto reales de la pared, rellena las medidas del espacio y aplica la foto enderezada a esa pared. Incluye una lupa para colocar las esquinas con precisión y un indicador de fiabilidad.
+
+Precisión simulada para una pared de 16 × 3,6 m fotografiada en perspectiva (foto de 1600 px), según el tamaño de la referencia y el error al marcar sus esquinas:
+
+| Referencia | Error con ±1 px | Error con ±3 px |
+| --- | --- | --- |
+| Folio A4 | inutilizable | inutilizable |
+| Puerta 0,9 × 2,1 m | 3–5 % | 19–28 % |
+| Puerta doble 1,8 × 2,3 m | 1–2 % | 4–6 % |
+| Tramo de pared de 4 m × alto completo | 0,3–0,5 % | 1–1,5 % |
+
+En la prueba completa marcando a mano en pantalla se obtuvieron 16,03 × 3,62 m para una pared real de 16,00 × 3,60 m. Las fotos de un móvil actual (unos 4000 px) reducen aún más el error.
+
+Por qué no hay realidad aumentada: Safari en iPhone no permite a las webs usar la RA (WebXR), y el escaneo automático de salas de Apple (RoomPlan) necesita LiDAR (modelos Pro) y una app nativa. En Android con Chrome sí sería posible añadir medición con RA dentro de la web.
+
 ## Escáner Revopoint Inspire 2 (mobiliario y decoración)
 
 El escáner de mano se usa para digitalizar **piezas**: sillas, mesas, sofás, lámparas, jarrones, esculturas, molduras o elementos decorativos sueltos. Para la **sala entera** es mejor la fotogrametría o el LiDAR del móvil, porque el escáner trabaja a poca distancia y escanear un salón con él sería lentísimo.
