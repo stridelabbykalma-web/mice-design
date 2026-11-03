@@ -6,6 +6,7 @@ import { BASE_CATALOG, CATEGORY_LABELS, findDef, itemCapacity, itemDims } from '
 import { addAsset, uid } from '../lib/db';
 import { loadGltf } from './Furniture';
 import { requestRectify } from './Rectify';
+import { TableGuests } from './GuestsPanel';
 import { attachedDecor, isDecorDef, isTableDef, makeTemplate, placeSettingsFor, tableAt } from '../lib/tables';
 import { saveFurnitureToLibrary, useLibrary } from '../lib/library';
 import { LAYOUT_INFO, LayoutOptions, defaultOptions, generateLayout, generatedTypes } from '../lib/layouts';
@@ -542,6 +543,7 @@ export function PropertiesPanel() {
           )}
         </Field>
       )}
+      {items.length === 1 && isTableDef(def) && <TableGuests tableId={first.id} />}
       {items.length === 1 && isTableDef(def) && <TableDecorPanel table={first} />}
       {items.length === 1 && isDecorDef(def) && (() => {
         const t = tableAt(project, first.x, first.z);

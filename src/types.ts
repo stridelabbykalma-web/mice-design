@@ -155,6 +155,19 @@ export interface EventInfo {
 
 export type LightingPreset = 'dia' | 'tarde' | 'noche' | 'gala';
 
+/** Invitado del evento y su sitio en el plano de mesas. */
+export interface Guest {
+  id: string;
+  name: string;
+  /** Empresa, familia o grupo: se intenta sentar juntos. */
+  group?: string;
+  /** Dieta o alergias (vegetariano, celíaco, sin lactosa…). */
+  diet?: string;
+  notes?: string;
+  /** Mesa asignada (id del elemento) en la propuesta actual. */
+  tableId?: string;
+}
+
 /** Propuesta alternativa de montaje dentro de un mismo evento. */
 export interface Variant {
   id: string;
@@ -162,6 +175,7 @@ export interface Variant {
   items: Item[];
   lighting: LightingPreset;
   layout: LayoutType | '';
+  guests?: Guest[];
 }
 
 export interface Project {
@@ -175,6 +189,8 @@ export interface Project {
   customCatalog: CatalogDef[];
   event: EventInfo;
   lighting: LightingPreset;
+  /** Invitados y su mesa en la propuesta actual. */
+  guests?: Guest[];
   /** Propuestas alternativas; la activa vive en items/lighting. */
   variants?: Variant[];
   activeVariant?: string;

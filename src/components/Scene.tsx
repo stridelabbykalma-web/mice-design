@@ -441,22 +441,22 @@ function Floor({ space, view }: { space: Space; view: string }) {
               const b = outline[(i + 1) % outline.length];
               const n = inwardNormal(outline, i);
               return (
-                <Html key={i} position={[(a.x + b.x) / 2 - n.x * 0.6, 0, (a.z + b.z) / 2 - n.z * 0.6]} center className="dim-label">
+                <Html zIndexRange={[10, 0]} key={i} position={[(a.x + b.x) / 2 - n.x * 0.6, 0, (a.z + b.z) / 2 - n.z * 0.6]} center className="dim-label">
                   {i + 1} · {Math.hypot(b.x - a.x, b.z - a.z).toFixed(2).replace('.', ',')} m
                 </Html>
               );
             })
           ) : (
             <>
-              <Html position={[0, 0, -D / 2 - 0.6]} center className="dim-label">
+              <Html zIndexRange={[10, 0]} position={[0, 0, -D / 2 - 0.6]} center className="dim-label">
                 {W.toFixed(2).replace('.', ',')} m
               </Html>
-              <Html position={[-W / 2 - 0.6, 0, 0]} center className="dim-label">
+              <Html zIndexRange={[10, 0]} position={[-W / 2 - 0.6, 0, 0]} center className="dim-label">
                 {D.toFixed(2).replace('.', ',')} m
               </Html>
             </>
           )}
-          <Html position={[0, 0, -D / 2 - 1.4]} center className="dim-label north">
+          <Html zIndexRange={[10, 0]} position={[0, 0, -D / 2 - 1.4]} center className="dim-label north">
             ▲ Frente / escenario
           </Html>
         </>
@@ -495,7 +495,10 @@ const ItemNode = memo(function ItemNode({
   interactive,
   elev,
   twin,
+  seats,
 }: {
+  /** Ocupación «sentados/plazas» si hay invitados. */
+  seats?: string;
   twin: boolean;
   elev: number;
   item: Item;
@@ -548,6 +551,7 @@ const ItemNode = memo(function ItemNode({
       {showLabel && item.label && (
         <Html position={[0, 1, 0]} center className="item-label" zIndexRange={[10, 0]}>
           {item.label}
+          {seats !== undefined && <span className="occ"> {seats}</span>}
         </Html>
       )}
     </group>
@@ -563,6 +567,12 @@ function Items({ project, view }: { project: Project; view: string }) {
   // Lo que se coloca encima de un escenario se eleva a su altura.
   const stages = project.items.filter((i) => i.type === 'escenario');
   const tables = project.items.filter((i) => isTableDef(findDef(i.type, project.customCatalog)));
+  const occ = useMemo(() => {
+    if (!project.guests?.length) return null;
+    const m = new Map<string, number>();
+    project.guests.forEach((g) => g.tableId && m.set(g.tableId, (m.get(g.tableId) ?? 0) + 1));
+    return m;
+  }, [project.guests]);
   const elevation = (it: Item) => {
     // La decoración de mesa se apoya en el tablero de la mesa sobre la que está.
     if (isDecorDef(findDef(it.type, project.customCatalog))) {
@@ -591,6 +601,7 @@ function Items({ project, view }: { project: Project; view: string }) {
           <ItemNode
             elev={elevation(it)}
             twin={!!project.space.model}
+            seats={occ && def?.chairs !== undefined ? `${occ.get(it.id) ?? 0}/${it.chairs ?? def.chairs}` : undefined}
             key={it.id}
             item={it}
             def={def}
@@ -653,7 +664,7 @@ function MeasureViz() {
       {pts.length === 2 && (
         <>
           <Polyline points={linePts} color="#f2994a" overlay />
-          <Html position={[(pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2 + 0.3, (pts[0].z + pts[1].z) / 2]} center className="measure-label">
+          <Html zIndexRange={[10, 0]} position={[(pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2 + 0.3, (pts[0].z + pts[1].z) / 2]} center className="measure-label">
             {dist.toFixed(2).replace('.', ',')} m
           </Html>
         </>

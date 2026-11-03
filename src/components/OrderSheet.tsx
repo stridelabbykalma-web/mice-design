@@ -5,6 +5,7 @@ import { analyze, capacitySummary } from '../lib/safety';
 import { budgetLines } from './Panels';
 import { eur, isEmbedded, m } from './ui';
 import { roomArea } from '../lib/outline';
+import { dietSummary, seatingTables, tableCapacity } from '../lib/guests';
 import type { LayoutType } from '../types';
 
 /** Orden de montaje (BEO) y propuesta para el cliente, lista para imprimir o guardar en PDF. */
@@ -18,6 +19,9 @@ export default function OrderSheet({ images, onClose }: { images: { plan?: strin
   const pax = ev.pax || cap.total;
   const subtotal = furniture + pax * ev.pricePerPax + ev.roomPrice;
   const exits = project.items.filter((i) => i.type === 'salida').length;
+  const diets = dietSummary(project.guests ?? []);
+  const tableIds = new Set(seatingTables(project).map((t) => t.id));
+  const unseated = (project.guests ?? []).filter((g) => !g.tableId || !tableIds.has(g.tableId)).length;
   const date = ev.date ? new Date(ev.date + 'T12:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '—';
 
   return (
@@ -157,6 +161,39 @@ export default function OrderSheet({ images, onClose }: { images: { plan?: strin
           <section>
             <h2>Observaciones</h2>
             <p className="order-notes">{ev.notes}</p>
+          </section>
+        )}
+
+        {(project.guests?.length ?? 0) > 0 && (
+          <section>
+            <h2>Plano de mesas</h2>
+            {diets.length > 0 && (
+              <p className="order-notes">
+                <strong>Dietas y alergias para cocina:</strong> {diets.map(([d, n]) => `${d} (${n})`).join(' · ')}
+              </p>
+            )}
+            <div className="seating-grid">
+              {seatingTables(project).map((t) => {
+                const list = (project.guests ?? []).filter((g) => g.tableId === t.id);
+                if (!list.length) return null;
+                return (
+                  <div key={t.id} className="seating-table">
+                    <strong>
+                      {t.label ?? 'Mesa'} · {list.length}/{tableCapacity(project, t)}
+                    </strong>
+                    <ol>
+                      {list.map((g) => (
+                        <li key={g.id}>
+                          {g.name}
+                          {g.diet ? ` (${g.diet})` : ''}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                );
+              })}
+            </div>
+            {unseated > 0 && <p className="order-notes">Sin mesa asignada: {unseated} invitados.</p>}
           </section>
         )}
 

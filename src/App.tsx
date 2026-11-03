@@ -11,6 +11,7 @@ import { RectifyHost } from './components/Rectify';
 import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { CompareModal, VariantMenu } from './components/Variants';
 import { normalizeOutline } from './lib/outline';
+import GuestsPanel from './components/GuestsPanel';
 import { downloadBlob, exportProject } from './lib/db';
 import { analyze, capacitySummary } from './lib/safety';
 import { LAYOUT_INFO } from './lib/layouts';
@@ -98,6 +99,7 @@ const PANELS = [
   { id: 'espacio', label: 'Espacio', icon: '▢' },
   { id: 'catalogo', label: 'Catálogo', icon: '◈' },
   { id: 'montaje', label: 'Montajes', icon: '▦' },
+  { id: 'invitados', label: 'Invitados', icon: '👥' },
   { id: 'evento', label: 'Evento y presupuesto', icon: '€' },
   { id: 'seguridad', label: 'Aforo y seguridad', icon: '⚠' },
 ];
@@ -234,6 +236,7 @@ function Editor() {
           {st.panel === 'espacio' && <SpacePanel />}
           {st.panel === 'catalogo' && <CatalogPanel />}
           {st.panel === 'montaje' && <LayoutPanel />}
+          {st.panel === 'invitados' && <GuestsPanel />}
           {st.panel === 'evento' && <EventPanel onOrder={openOrder} />}
           {st.panel === 'seguridad' && <SafetyPanel />}
         </aside>
