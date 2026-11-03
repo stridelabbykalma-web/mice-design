@@ -97,7 +97,11 @@ Precisión simulada para una pared de 16 × 3,6 m fotografiada en perspectiva (f
 
 En la prueba completa marcando a mano en pantalla se obtuvieron 16,03 × 3,62 m para una pared real de 16,00 × 3,60 m. Las fotos de un móvil actual (unos 4000 px) reducen aún más el error.
 
-Por qué no hay realidad aumentada: Safari en iPhone no permite a las webs usar la RA (WebXR), y el escaneo automático de salas de Apple (RoomPlan) necesita LiDAR (modelos Pro) y una app nativa. En Android con Chrome sí sería posible añadir medición con RA dentro de la web.
+Por qué no hay realidad aumentada dentro de la web: Safari en iPhone no permite a las webs usar la RA (WebXR). En Android con Chrome sí sería posible.
+
+## App de refuerzo MICE Capture (iPhone/iPad Pro con LiDAR)
+
+En `ios/MICECapture/` está el código de una app nativa (SwiftUI + RoomPlan de Apple) que escanea la sala con el LiDAR en unos segundos y exporta paredes, puertas, ventanas y huecos en un archivo `.mice-room.json`. MICE Design lo importa en *Espacio → Medición con iPhone Pro*: endereza la sala, fija ancho, fondo y altura, coloca puertas y ventanas en su pared (con su altura de alféizar) y añade como tabiques los tramos interiores de salas en L. Para instalarla hace falta un Mac con Xcode; las instrucciones están en `ios/MICECapture/README.md`. El importador está probado con mediciones simuladas (sala girada 30° y desplazada, con tramo interior, puertas y ventana); la app de iPhone no se ha podido compilar en este entorno.
 
 ## Escáner Revopoint Inspire 2 (mobiliario y decoración)
 

@@ -6,6 +6,7 @@ import { addAsset, assetUrl, downloadBlob } from '../lib/db';
 import { loadGltf } from './Furniture';
 import { requestRectify } from './Rectify';
 import { openPhotoMeasure } from './PhotoMeasure';
+import { parseRoomPlan } from '../lib/roomplan';
 import { geocode, satelliteImage, SAT_ATTRIBUTION } from '../lib/satellite';
 import { makeZip } from '../lib/zip';
 import { DEG } from '../lib/geometry';
@@ -66,6 +67,7 @@ export default function SpacePanel() {
             <NumberInput value={space.height} min={2} max={30} onChange={(height) => updateSpace({ height })} suffix="m" />
           </Field>
         </div>
+        <RoomPlanImport />
         <div className="callout">
           <strong>📏 ¿No tienes las medidas?</strong>
           <p className="hint">
@@ -612,5 +614,41 @@ function RealSurfaces() {
         Coger un color del espacio (cuentagotas)
       </button>
     </Section>
+  );
+}
+
+/** Importa la medición de MICE Capture (RoomPlan, iPhone/iPad con LiDAR). */
+function RoomPlanImport() {
+  const updateSpace = useStore((s) => s.updateSpace);
+  const addItems = useStore((s) => s.addItems);
+  const [msg, setMsg] = useState('');
+  return (
+    <div className="callout">
+      <strong>📱 Medición con iPhone Pro (LiDAR)</strong>
+      <p className="hint">
+        Escanea la sala con la app de refuerzo <em>MICE Capture</em> y comparte aquí el archivo <code>.mice-room.json</code>: se crean las medidas, la altura, las puertas, las
+        ventanas y los tabiques.
+      </p>
+      <FileButton
+        accept=".json,application/json"
+        className="btn small"
+        onFile={async (f) => {
+          try {
+            const r = parseRoomPlan(JSON.parse(await f.text()));
+            updateSpace({ width: r.width, depth: r.depth, height: r.height });
+            addItems(
+              r.items.map(({ id: _id, ...it }) => it),
+              ['puerta', 'salida', 'ventana', 'tabique'],
+            );
+            setMsg(r.summary);
+          } catch (e) {
+            setMsg((e as Error).message);
+          }
+        }}
+      >
+        Importar medición (.mice-room.json)
+      </FileButton>
+      {msg && <p className="hint">{msg}</p>}
+    </div>
   );
 }
