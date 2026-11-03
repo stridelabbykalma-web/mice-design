@@ -3,6 +3,8 @@ import type { Project, SpaceMethod } from '../types';
 import { db, downloadBlob, importProject } from '../lib/db';
 import { exportLibrary, importLibrary, useLibrary } from '../lib/library';
 import { projectFromRoom } from '../lib/rooms';
+import { SyncSection } from './SyncPanel';
+import { useSync } from '../lib/sync';
 import { blankSpace, demoProject, demoScanProject } from '../lib/demo';
 import { newProject, useStore } from '../store';
 import { ConfirmButton, Field, FileButton, NumberInput, isEmbedded, m } from './ui';
@@ -49,9 +51,10 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
   const [error, setError] = useState('');
 
   const refresh = () => db.listProjects().then(setProjects);
+  const lastSync = useSync((s) => s.last);
   useEffect(() => {
     refresh();
-  }, []);
+  }, [lastSync]);
 
   const create = () => {
     if (!method) return;
@@ -167,6 +170,8 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
           </div>
         )}
 
+        <SyncSection />
+
         <HotelSection />
 
         <h2>Proyectos guardados</h2>
@@ -190,6 +195,7 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
                   title="Eliminar"
                   onConfirm={async () => {
                     await db.deleteProject(p.id);
+                    window.dispatchEvent(new CustomEvent('mice-deleted', { detail: { kind: 'project', id: p.id } }));
                     refresh();
                   }}
                 >

@@ -17,20 +17,23 @@ export const useLibrary = create<LibState>((set, get) => ({
   loaded: false,
   load: async () => set({ entries: await db.listLibrary(), loaded: true }),
   add: async (kind, name, data) => {
-    const e: LibraryEntry = { id: uid('l_'), kind, name, createdAt: Date.now(), ...data };
+    const e: LibraryEntry = { id: uid('l_'), kind, name, createdAt: Date.now(), updatedAt: Date.now(), ...data };
     await db.saveLibrary(e);
+    window.dispatchEvent(new Event('mice-saved'));
     set({ entries: [e, ...get().entries] });
     return e;
   },
   remove: async (id) => {
     await db.deleteLibrary(id);
+    window.dispatchEvent(new CustomEvent('mice-deleted', { detail: { kind: 'library', id } }));
     set({ entries: get().entries.filter((e) => e.id !== id) });
   },
   rename: async (id, name) => {
     const e = get().entries.find((x) => x.id === id);
     if (!e) return;
-    const n = { ...e, name };
+    const n = { ...e, name, updatedAt: Date.now() };
     await db.saveLibrary(n);
+    window.dispatchEvent(new Event('mice-saved'));
     set({ entries: get().entries.map((x) => (x.id === id ? n : x)) });
   },
 }));

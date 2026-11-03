@@ -39,6 +39,8 @@ interface State {
   pinMode: boolean;
   pendingPin: { x: number; z: number } | null;
   setCloud(patch: Partial<Pick<State, 'readOnly' | 'shareId' | 'comments' | 'pinMode' | 'pendingPin'>>): void;
+  /** Sustituye el proyecto abierto por una versión más reciente (sincronización) sin cambiar la vista. */
+  replaceProject(p: Project): void;
   /** Vértices del contorno que se está dibujando. */
   drawPts: { x: number; z: number }[];
   setDrawPts(p: { x: number; z: number }[]): void;
@@ -143,7 +145,12 @@ function scheduleSave(p: Project | null) {
   // Una propuesta abierta desde un enlace no se guarda en el navegador del cliente
   if (!p || useStore.getState().readOnly) return;
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => db.saveProject({ ...p, updatedAt: Date.now() }), 400);
+  saveTimer = window.setTimeout(() => {
+    const updated = { ...p, updatedAt: Date.now() };
+    db.saveProject(updated).then(() => window.dispatchEvent(new Event('mice-saved')));
+    // El proyecto en memoria lleva la misma fecha que el guardado (para la sincronización)
+    if (useStore.getState().project?.id === p.id) useStore.setState({ project: { ...useStore.getState().project!, updatedAt: updated.updatedAt } });
+  }, 400);
 }
 
 export const useStore = create<State>((set, get) => {
@@ -174,6 +181,7 @@ export const useStore = create<State>((set, get) => {
     pinMode: false,
     pendingPin: null,
     setCloud: (patch) => set(patch),
+    replaceProject: (p) => set({ project: p, selection: [], past: [], future: [] }),
     setDrawPts: (drawPts) => set({ drawPts }),
     past: [],
     future: [],

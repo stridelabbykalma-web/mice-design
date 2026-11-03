@@ -72,3 +72,43 @@ on conflict (id) do update set public = true;
 drop policy if exists "subir archivos de propuestas" on storage.objects;
 create policy "subir archivos de propuestas" on storage.objects for insert to anon, authenticated
   with check (bucket_id = 'mice-assets');
+
+-- ============================================================================
+-- Sincronización entre dispositivos (ordenador ↔ móvil)
+-- Un «espacio de trabajo» se identifica por un UUID aleatorio que solo conocen los
+-- dispositivos vinculados (código QR). Sin políticas directas: todo pasa por funciones
+-- que exigen ese identificador, así que nadie puede listar espacios ajenos.
+-- ============================================================================
+
+create table if not exists public.ws_items (
+  workspace uuid not null,
+  kind text not null check (kind in ('project', 'library')),
+  id text not null check (char_length(id) <= 100),
+  updated_at bigint not null,
+  deleted boolean not null default false,
+  data jsonb,
+  primary key (workspace, kind, id)
+);
+
+alter table public.ws_items enable row level security;
+
+create or replace function public.ws_pull(p_ws uuid, p_since bigint)
+returns setof public.ws_items language sql stable security definer set search_path = public as $$
+  select * from public.ws_items where workspace = p_ws and updated_at > p_since order by updated_at
+$$;
+
+-- Gana la versión más reciente (updated_at mayor)
+create or replace function public.ws_push(p_ws uuid, p_kind text, p_id text, p_updated bigint, p_deleted boolean, p_data jsonb)
+returns void language sql security definer set search_path = public as $$
+  insert into public.ws_items (workspace, kind, id, updated_at, deleted, data)
+  values (p_ws, p_kind, p_id, p_updated, p_deleted, case when p_deleted then null else p_data end)
+  on conflict (workspace, kind, id) do update
+    set updated_at = excluded.updated_at, deleted = excluded.deleted, data = excluded.data
+    where public.ws_items.updated_at < excluded.updated_at
+$$;
+
+revoke all on function public.ws_pull(uuid, bigint) from public;
+revoke all on function public.ws_push(uuid, text, text, bigint, boolean, jsonb) from public;
+grant execute on function public.ws_pull(uuid, bigint) to anon, authenticated;
+grant execute on function public.ws_push(uuid, text, text, bigint, boolean, jsonb) to anon, authenticated;
+-- Los archivos de los espacios de trabajo usan el mismo bucket, en ws/<espacio>/<archivo>.

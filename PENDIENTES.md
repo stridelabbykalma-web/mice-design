@@ -7,6 +7,11 @@
 - [ ] Instalar MICE Capture en el iPhone 16 Pro desde un Mac con Xcode (`ios/MICECapture/README.md`) y corregir los errores de compilación que aparezcan.
 - [ ] Probar en el iPhone real la captura de paredes con la cámara, la medición con foto y la importación de RoomPlan.
 
+### Nube (Supabase)
+- [ ] Revocar la clave secreta `sb_secret_…` que se compartió en el chat y generar otra (no hace falta en la app).
+- [ ] Ejecutar `supabase/schema.sql` en el SQL Editor y pasar la *Project URL* para ponerla en `src/lib/cloud.ts`.
+- [ ] Probar con el iPhone real: vincular por QR y capturar fotos desde el móvil.
+
 ### Caso práctico (OE6)
 - [ ] Elegir 1 o 2 salas reales y pedir permiso al hotel por escrito.
 - [ ] Medir cada sala con MICE Capture (LiDAR) e importar la medición.
@@ -32,7 +37,8 @@
 Elegidas:
 - [x] Catálogo del hotel compartido entre proyectos: mobiliario escaneado, salas reutilizables y **mesas decoradas** guardadas como plantilla (cada pieza sigue siendo editable).
 - [x] Varias propuestas por evento (A, B, C) para comparar montajes.
-- [ ] Compartir la propuesta con el cliente por enlace, con comentarios (requiere un backend, por ejemplo Supabase; pendiente de crear la cuenta).
+- [x] Compartir la propuesta con el cliente por enlace, con comentarios (falta la URL de Supabase).
+- [x] Sincronizar proyectos y catálogo entre ordenador y móvil por QR (falta la URL de Supabase).
 - [x] Salas con cualquier forma (polígono).
 - [x] Gaussian splatting para un realismo casi fotográfico.
 - [x] Plano de mesas con invitados (importación CSV).

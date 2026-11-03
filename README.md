@@ -57,6 +57,12 @@ El ejemplo *Gemelo digital de una sala* usa un **escaneo simulado** (`src/assets
 - **Plano de mesas con invitados**: importación CSV, asignación automática que mantiene juntos a los grupos, ocupación por mesa, resumen de dietas y alergias para cocina, exportación CSV y plano en la orden de montaje.
 - **Gaussian splatting**: importación de capturas `.ply`, `.splat` o `.ksplat` para un realismo casi fotográfico (la librería se carga solo cuando se usa).
 
+## Nube: sincronizar dispositivos y compartir con el cliente (Supabase)
+
+- **Sincronizar ordenador y móvil**: en la pantalla de inicio, *Activar la sincronización* crea un espacio de trabajo del hotel y muestra un QR; al escanearlo con el móvil y pulsar *Vincular*, ambos dispositivos comparten proyectos, salas, mesas decoradas y muebles escaneados con todos sus archivos. Se sincroniza al guardar, cada 15 s y al volver a la app; si el mismo proyecto cambia en los dos, gana la versión más reciente y, si hay cambios sin subir, la app pregunta. Caso típico: preparar el proyecto en el ordenador, hacer las fotos de las paredes con el móvil y verlas aparecer en el ordenador.
+- **Compartir con el cliente** (botón *Compartir* del editor): crea un enlace de solo lectura (3D, plano, recorrido, propuestas e idioma) en el que el cliente deja comentarios señalando el punto del plano; el hotel los ve numerados en la escena y los marca como resueltos. Los invitados solo se comparten si se elige.
+- **Puesta en marcha**: ejecutar `supabase/schema.sql` en el SQL Editor del proyecto y poner la *Project URL* en `src/lib/cloud.ts` (la clave pública *publishable* ya está). Nunca se usa la clave secreta. Nadie puede listar espacios de trabajo ni propuestas ajenas: todo se lee mediante funciones que exigen su identificador aleatorio.
+
 ## Funcionalidades (objetivos OE5 y OE6)
 
 | Área | Qué hace |

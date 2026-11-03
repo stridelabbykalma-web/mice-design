@@ -11,6 +11,7 @@ import { RectifyHost } from './components/Rectify';
 import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { CompareModal, VariantMenu } from './components/Variants';
 import { ClientComments, ShareModal } from './components/Share';
+import { SyncIndicator } from './components/SyncPanel';
 import { loadShare, sharedIdFromHash } from './lib/cloud';
 import { normalizeOutline, roomArea } from './lib/outline';
 import { locale, t } from './lib/i18n';
@@ -183,6 +184,7 @@ function Editor() {
           <option value="gala">✨ Gala</option>
         </select>
         <div className="spacer" />
+        <SyncIndicator />
         <details className="menu">
           <summary className="btn">Exportar ▾</summary>
           <div className="menu-list" onClick={(e) => (e.currentTarget.closest('details') as HTMLDetailsElement).removeAttribute('open')}>

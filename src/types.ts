@@ -244,6 +244,8 @@ export interface LibraryEntry {
   kind: LibraryKind;
   name: string;
   createdAt: number;
+  /** Última modificación (para sincronizar entre dispositivos). */
+  updatedAt?: number;
   def?: CatalogDef;
   table?: TableTemplate;
   room?: RoomTemplate;

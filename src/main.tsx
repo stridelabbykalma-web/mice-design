@@ -12,3 +12,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 // Acceso al estado desde la consola del navegador (pruebas y depuración).
 import { useStore } from './store';
 (window as unknown as { __mice: typeof useStore }).__mice = useStore;
+
+// Sincronización entre dispositivos (si este dispositivo está vinculado y no es un enlace de cliente)
+import { startAutoSync } from './lib/sync';
+if (!location.hash.startsWith('#p-')) startAutoSync();

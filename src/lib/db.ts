@@ -51,6 +51,13 @@ export const db = {
       return [];
     }
   },
+  async getProject(id: string): Promise<Project | undefined> {
+    try {
+      return await tx<Project | undefined>('projects', 'readonly', (s) => s.get(id) as IDBRequest<Project | undefined>);
+    } catch {
+      return undefined;
+    }
+  },
   saveProject(p: Project) {
     return tx('projects', 'readwrite', (s) => s.put(p)).catch(() => undefined);
   },

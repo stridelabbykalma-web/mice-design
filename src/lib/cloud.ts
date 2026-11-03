@@ -6,8 +6,19 @@ import type { Project } from '../types';
 import { getAsset, projectAssetIds, registerAsset } from './db';
 
 /** Configuración del proyecto de Supabase (la URL y la clave pública no son secretas). */
+const DEFAULT_URL = 'https://REEMPLAZAR.supabase.co';
+
+/** Para pruebas: localStorage «mice-cloud-url» apunta la app a otro servidor. */
+function cloudUrl() {
+  try {
+    return localStorage.getItem('mice-cloud-url') || DEFAULT_URL;
+  } catch {
+    return DEFAULT_URL;
+  }
+}
+
 export const CLOUD = {
-  url: 'https://REEMPLAZAR.supabase.co',
+  url: cloudUrl(),
   key: 'sb_publishable_r50ep5iXZrEVUyLnc1ckXQ_67LcGFio',
   bucket: 'mice-assets',
 };
@@ -17,9 +28,9 @@ export const PUBLIC_APP_URL = 'https://stridelabbykalma-web.github.io/mice-desig
 
 export const cloudReady = () => !CLOUD.url.includes('REEMPLAZAR');
 
-const headers = (extra: Record<string, string> = {}) => ({ apikey: CLOUD.key, Authorization: `Bearer ${CLOUD.key}`, ...extra });
+export const headers = (extra: Record<string, string> = {}) => ({ apikey: CLOUD.key, Authorization: `Bearer ${CLOUD.key}`, ...extra });
 
-async function rest(path: string, init: RequestInit) {
+export async function rest(path: string, init: RequestInit) {
   const res = await fetch(`${CLOUD.url}${path}`, init);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -28,7 +39,7 @@ async function rest(path: string, init: RequestInit) {
   return res;
 }
 
-async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+export async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
   const res = await rest(`/rest/v1/rpc/${fn}`, { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify(args) });
   const text = await res.text();
   return (text ? JSON.parse(text) : null) as T;
