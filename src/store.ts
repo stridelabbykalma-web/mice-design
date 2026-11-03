@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { CatalogDef, Item, LightingPreset, Project, Space, Tool, ViewMode, EventInfo } from './types';
+import type { CatalogDef, Item, LightingPreset, Project, Space, Tool, ViewMode, EventInfo, TableTemplate } from './types';
+import { attachedDecor, decorForTable, isTableDef } from './lib/tables';
 import { db, uid } from './lib/db';
 import { findDef } from './catalog';
 
@@ -20,6 +21,8 @@ interface State {
   view: ViewMode;
   tool: Tool;
   placingType: string | null;
+  /** Mesa decorada que se está colocando. */
+  placingTemplate: TableTemplate | null;
   snap: boolean;
   clientMode: boolean;
   measure: MeasurePoint[];
@@ -36,6 +39,17 @@ interface State {
   setView(v: ViewMode): void;
   setTool(t: Tool): void;
   startPlacing(type: string): void;
+  startPlacingTemplate(t: TableTemplate): void;
+  /** Gira elementos; las mesas giran con su decoración alrededor de su centro. */
+  rotateItems(ids: string[], delta: number): void;
+  /** Añade a una lista de elementos la decoración de las mesas que incluya. */
+  withDecor(ids: string[]): string[];
+  /** Añade al proyecto las definiciones del catálogo del hotel que falten. */
+  ensureDefs(defs: CatalogDef[]): void;
+  /** Aplica una mesa decorada a varias mesas (sustituye su decoración). */
+  applyTemplate(tpl: TableTemplate, tableIds: string[]): void;
+  /** Coloca una mesa decorada nueva. */
+  placeTemplate(tpl: TableTemplate, x: number, z: number): string;
   setSnap(s: boolean): void;
   setClientMode(c: boolean): void;
   setShowVideo(v: boolean): void;
@@ -115,6 +129,7 @@ export const useStore = create<State>((set, get) => {
     view: '3d',
     tool: 'select',
     placingType: null,
+    placingTemplate: null,
     snap: true,
     clientMode: false,
     measure: [],
@@ -145,8 +160,76 @@ export const useStore = create<State>((set, get) => {
     },
     setPanel: (panel) => set({ panel }),
     setView: (view) => set({ view, selection: view === 'paseo' ? [] : get().selection, tool: view === 'paseo' ? 'select' : get().tool, placingType: view === 'paseo' ? null : get().placingType }),
-    setTool: (tool) => set({ tool, placingType: tool === 'place' ? get().placingType : null, measure: tool === 'measure' ? get().measure : [] }),
-    startPlacing: (type) => set({ tool: 'place', placingType: type, selection: [], view: get().view === 'paseo' ? '3d' : get().view }),
+    setTool: (tool) => set({ tool, placingType: tool === 'place' ? get().placingType : null, placingTemplate: tool === 'place' ? get().placingTemplate : null, measure: tool === 'measure' ? get().measure : [] }),
+    startPlacingTemplate: (t) => {
+      get().ensureDefs(t.defs);
+      set({ tool: 'place', placingType: t.base.type, placingTemplate: t, selection: [], view: get().view === 'paseo' ? '3d' : get().view });
+    },
+    rotateItems: (ids, delta) => {
+      const p = get().project;
+      if (!p) return;
+      get().checkpoint();
+      const sel = new Set(ids);
+      const moves = new Map<string, Partial<Item>>();
+      for (const it of p.items) {
+        if (!sel.has(it.id)) continue;
+        moves.set(it.id, { rot: it.rot + delta });
+        if (!isTableDef(findDef(it.type, p.customCatalog))) continue;
+        for (const dec of attachedDecor(p, it)) {
+          if (sel.has(dec.id)) continue;
+          // Giro de la pieza alrededor del centro de la mesa
+          const t = (delta * Math.PI) / 180;
+          const dx = dec.x - it.x;
+          const dz = dec.z - it.z;
+          moves.set(dec.id, {
+            x: it.x + dx * Math.cos(t) + dz * Math.sin(t),
+            z: it.z - dx * Math.sin(t) + dz * Math.cos(t),
+            rot: dec.rot + delta,
+          });
+        }
+      }
+      mutate((pr) => ({ ...pr, items: pr.items.map((it) => (moves.has(it.id) ? { ...it, ...moves.get(it.id) } : it)) }));
+    },
+    withDecor: (ids) => {
+      const p = get().project;
+      if (!p) return ids;
+      const set_ = new Set(ids);
+      for (const it of p.items) if (set_.has(it.id) && isTableDef(findDef(it.type, p.customCatalog))) attachedDecor(p, it).forEach((d) => set_.add(d.id));
+      return [...set_];
+    },
+    ensureDefs: (defs) => {
+      const p = get().project;
+      if (!p || !defs.length) return;
+      const have = new Set(p.customCatalog.map((c) => c.type));
+      const missing = defs.filter((d) => !have.has(d.type));
+      if (missing.length) mutate((pr) => ({ ...pr, customCatalog: [...pr.customCatalog, ...missing] }));
+    },
+    applyTemplate: (tpl, tableIds) => {
+      const p = get().project;
+      if (!p) return;
+      get().checkpoint();
+      get().ensureDefs(tpl.defs);
+      const pr = get().project!;
+      const ids = new Set(tableIds);
+      const tables = pr.items.filter((i) => ids.has(i.id));
+      const remove = new Set(tables.flatMap((t) => attachedDecor(pr, t).map((d) => d.id)));
+      const { w: _w, d: _d, h: _h, ...base } = tpl.base;
+      const updated = pr.items.filter((i) => !remove.has(i.id)).map((i) => (ids.has(i.id) ? { ...i, ...base, type: i.type } : i));
+      const decor = tables.flatMap((t) => decorForTable(tpl, { ...t, ...base, type: t.type }));
+      mutate((x) => ({ ...x, items: [...updated, ...decor] }));
+    },
+    placeTemplate: (tpl, x, z) => {
+      get().checkpoint();
+      get().ensureDefs(tpl.defs);
+      const p = get().project!;
+      const id = uid('i_');
+      const n = p.items.filter((i) => isTableDef(findDef(i.type, p.customCatalog))).length + 1;
+      const table: Item = { ...tpl.base, id, x, z, rot: 0, label: `Mesa ${n}` };
+      const decor = decorForTable(tpl, table);
+      mutate((pr) => ({ ...pr, items: [...pr.items, table, ...decor] }));
+      return id;
+    },
+    startPlacing: (type) => set({ placingTemplate: null, tool: 'place', placingType: type, selection: [], view: get().view === 'paseo' ? '3d' : get().view }),
     setSnap: (snap) => set({ snap }),
     setClientMode: (clientMode) => set({ clientMode, selection: [], tool: 'select', placingType: null }),
     setShowVideo: (showVideo) => set({ showVideo }),
@@ -219,16 +302,18 @@ export const useStore = create<State>((set, get) => {
       const set_ = new Set(ids);
       mutate((p) => ({ ...p, items: p.items.map((it) => (set_.has(it.id) ? { ...it, ...fn(it) } : it)) }));
     },
-    removeItems: (ids) => {
-      if (!ids.length) return;
+    removeItems: (idsIn) => {
+      if (!idsIn.length) return;
+      const ids = get().withDecor(idsIn);
       get().checkpoint();
       const s = new Set(ids);
       mutate((p) => ({ ...p, items: p.items.filter((i) => !s.has(i.id)) }));
       set({ selection: get().selection.filter((id) => !s.has(id)) });
     },
-    duplicate: (ids) => {
+    duplicate: (idsIn) => {
       const p = get().project;
-      if (!p || !ids.length) return;
+      if (!p || !idsIn.length) return;
+      const ids = get().withDecor(idsIn);
       get().checkpoint();
       const s = new Set(ids);
       const copies = p.items.filter((i) => s.has(i.id)).map((i) => ({ ...i, id: uid('i_'), x: i.x + 0.5, z: i.z + 0.5 }));

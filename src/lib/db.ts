@@ -1,8 +1,8 @@
 // Persistencia local en IndexedDB: proyectos y archivos (planos, modelos 3D, vídeos).
-import type { Project } from '../types';
+import type { LibraryEntry, Project } from '../types';
 
 const DB_NAME = 'mice-design';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export interface StoredAsset {
   id: string;
@@ -21,6 +21,8 @@ function openDb(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets', { keyPath: 'id' });
+      // Catálogo del hotel compartido por todos los proyectos (muebles, mesas decoradas, salas)
+      if (!db.objectStoreNames.contains('library')) db.createObjectStore('library', { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -54,6 +56,20 @@ export const db = {
   },
   deleteProject(id: string) {
     return tx('projects', 'readwrite', (s) => s.delete(id)).catch(() => undefined);
+  },
+  async listLibrary(): Promise<LibraryEntry[]> {
+    try {
+      const all = await tx<LibraryEntry[]>('library', 'readonly', (s) => s.getAll() as IDBRequest<LibraryEntry[]>);
+      return all.sort((a, b) => b.createdAt - a.createdAt);
+    } catch {
+      return [];
+    }
+  },
+  saveLibrary(e: LibraryEntry) {
+    return tx('library', 'readwrite', (s) => s.put(e)).catch(() => undefined);
+  },
+  deleteLibrary(id: string) {
+    return tx('library', 'readwrite', (s) => s.delete(id)).catch(() => undefined);
   },
   saveAsset(a: StoredAsset) {
     return tx('assets', 'readwrite', (s) => s.put(a)).catch(() => undefined);

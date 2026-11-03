@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { Project, SpaceMethod } from '../types';
-import { db, importProject } from '../lib/db';
+import { db, downloadBlob, importProject } from '../lib/db';
+import { exportLibrary, importLibrary, useLibrary } from '../lib/library';
+import { projectFromRoom } from '../lib/rooms';
 import { blankSpace, demoProject, demoScanProject } from '../lib/demo';
 import { newProject, useStore } from '../store';
-import { ConfirmButton, Field, FileButton, NumberInput, isEmbedded } from './ui';
+import { ConfirmButton, Field, FileButton, NumberInput, isEmbedded, m } from './ui';
 
 const METHODS: { id: SpaceMethod; title: string; text: string; icon: string; when: string }[] = [
   {
@@ -165,6 +167,8 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
           </div>
         )}
 
+        <HotelSection />
+
         <h2>Proyectos guardados</h2>
         {projects.length === 0 ? (
           <p className="muted">Todavía no hay proyectos. Se guardan automáticamente en este navegador.</p>
@@ -200,3 +204,76 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
     </div>
   );
 }
+
+function HotelSection() {
+  const openProject = useStore((s) => s.openProject);
+  const { entries, loaded, load, remove } = useLibrary();
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    if (!loaded) load();
+  }, [loaded, load]);
+  const rooms = entries.filter((e) => e.kind === 'sala' && e.room);
+  const nTables = entries.filter((e) => e.kind === 'mesa').length;
+  const nFurniture = entries.filter((e) => e.kind === 'mueble').length;
+
+  return (
+    <>
+      <h2>Catálogo del hotel</h2>
+      <p className="muted">
+        {plural(rooms.length, 'sala', 'salas')} · {plural(nTables, 'mesa decorada', 'mesas decoradas')} · {plural(nFurniture, 'mueble escaneado', 'muebles escaneados')}. Se digitalizan una vez y sirven para todos los eventos.
+      </p>
+      {rooms.length > 0 && (
+        <div className="project-list">
+          {rooms.map((e) => (
+            <div key={e.id} className="project-card">
+              <button
+                className="project-open"
+                onClick={() => {
+                  const p = projectFromRoom(e.room!, `Evento en ${e.name}`, '');
+                  db.saveProject(p);
+                  openProject(p);
+                }}
+              >
+                <strong>{e.name}</strong>
+                <span>
+                  {m(e.room!.space.width, 1)} × {m(e.room!.space.depth, 1)} m · {m(e.room!.space.width * e.room!.space.depth, 0)} m²
+                  {e.room!.space.model ? ' · escaneo 3D' : ''}
+                </span>
+                <span className="muted">Nuevo evento en esta sala →</span>
+              </button>
+              <ConfirmButton title="Eliminar la sala del catálogo" onConfirm={() => remove(e.id)}>
+                ✕
+              </ConfirmButton>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="row gap wrap" style={{ marginTop: 10 }}>
+        <button
+          className="btn small"
+          disabled={!entries.length}
+          onClick={async () => downloadBlob(await exportLibrary(), 'catalogo-hotel.mice-hotel.json')}
+        >
+          Copia de seguridad del catálogo
+        </button>
+        <FileButton
+          accept=".json,application/json"
+          className="btn small"
+          onFile={async (f) => {
+            try {
+              const n = await importLibrary(f);
+              setMsg(`${n} elementos importados.`);
+            } catch (err) {
+              setMsg((err as Error).message);
+            }
+          }}
+        >
+          Importar catálogo
+        </FileButton>
+      </div>
+      {msg && <p className="hint">{msg}</p>}
+    </>
+  );
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

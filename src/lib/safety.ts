@@ -36,7 +36,7 @@ const fmt = (v: number, d = 2) => v.toFixed(d).replace('.', ',');
 /** Elementos que pueden ir encima del escenario sin considerarse un solape. */
 const ON_STAGE = new Set(['atril', 'pantalla', 'planta', 'foco', 'uplight', 'silla', 'silla-conferencia', 'butaca', 'sofa']);
 
-const NON_BLOCKING = new Set(['cuadro', 'espejo', 'alfombra', 'pista-baile', 'uplight', 'toma-corriente', 'ventana', 'puerta', 'salida']);
+const NON_BLOCKING = new Set(['cubierto', 'bajoplato', 'copa', 'vela', 'candelabro', 'centro-alto', 'centro-bajo', 'numero-mesa', 'menu-carta', 'camino-mesa', 'cuadro', 'espejo', 'alfombra', 'pista-baile', 'uplight', 'toma-corriente', 'ventana', 'puerta', 'salida']);
 
 export function obbOf(item: Item, def?: CatalogDef, withChairs = true): OBB {
   const f = withChairs ? footprint(item, def) : itemDims(item, def);
@@ -161,7 +161,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
     for (const ex of exits) {
       const zone = exitClearance(ex, findDef(ex.type, customCatalog));
       for (const it of items) {
-        if (NON_BLOCKING.has(it.type)) continue;
+        if (NON_BLOCKING.has(it.type) || findDef(it.type, customCatalog)?.onTable) continue;
         if (obbOverlap(zone, obbOf(it, findDef(it.type, customCatalog)))) blocked.push(it.id);
       }
     }
@@ -177,7 +177,7 @@ export function analyze(project: Project): { checks: Check[]; area: number; maxO
   }
 
   // 5. Solapes entre muebles
-  const solid = items.filter((i) => !NON_BLOCKING.has(i.type));
+  const solid = items.filter((i) => !NON_BLOCKING.has(i.type) && !findDef(i.type, customCatalog)?.onTable);
   const overlapping = new Set<string>();
   for (let a = 0; a < solid.length; a++) {
     const A = solid[a];

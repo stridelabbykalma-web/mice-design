@@ -472,6 +472,88 @@ export function FurnitureMesh({ item, def, custom, wallHeight, lightsOn, twin = 
           <Box w={w} h={0.05} d={d} y={0.025} color="#333" />
         </group>
       );
+    case 'cubierto':
+      return <PlaceSetting color={color} />;
+    case 'bajoplato':
+      return (
+        <mesh position={[0, 0.005, 0]}>
+          <cylinderGeometry args={[w / 2, w / 2 - 0.01, 0.01, 32]} />
+          <meshStandardMaterial color={color} metalness={0.6} roughness={0.3} />
+        </mesh>
+      );
+    case 'copa':
+      return <Glass />;
+    case 'vela':
+      return <Candle h={h} color={color} lit={lightsOn} />;
+    case 'candelabro':
+      return (
+        <group>
+          <mesh position={[0, 0.02, 0]}>
+            <cylinderGeometry args={[0.06, 0.07, 0.04, 16]} />
+            <meshStandardMaterial color={color} metalness={0.8} roughness={0.25} />
+          </mesh>
+          <mesh position={[0, 0.17, 0]}>
+            <cylinderGeometry args={[0.01, 0.012, 0.28, 8]} />
+            <meshStandardMaterial color={color} metalness={0.8} roughness={0.25} />
+          </mesh>
+          <mesh position={[0, 0.31, 0]}>
+            <boxGeometry args={[w - 0.04, 0.012, 0.012]} />
+            <meshStandardMaterial color={color} metalness={0.8} roughness={0.25} />
+          </mesh>
+          {[-1, 0, 1].map((k) => (
+            <group key={k} position={[k * (w / 2 - 0.03), 0.32, 0]}>
+              <Candle h={0.16} color="#f6f0e2" lit={lightsOn} />
+            </group>
+          ))}
+        </group>
+      );
+    case 'centro-alto':
+      return (
+        <group>
+          <mesh position={[0, h * 0.35, 0]}>
+            <cylinderGeometry args={[0.035, 0.07, h * 0.7, 16]} />
+            <meshStandardMaterial color="#dfe8ee" transparent opacity={0.55} roughness={0.05} />
+          </mesh>
+          <Flowers y={h * 0.78} r={w / 2} color={color} />
+        </group>
+      );
+    case 'centro-bajo':
+      return (
+        <group>
+          <mesh position={[0, 0.04, 0]}>
+            <cylinderGeometry args={[w * 0.3, w * 0.25, 0.08, 20]} />
+            <meshStandardMaterial color="#e9e4d8" roughness={0.4} />
+          </mesh>
+          <Flowers y={0.1} r={w / 2} color={color} flat />
+        </group>
+      );
+    case 'numero-mesa':
+      return (
+        <group>
+          <mesh position={[0, 0.06, 0]}>
+            <cylinderGeometry args={[0.008, 0.03, 0.12, 8]} />
+            <meshStandardMaterial color="#c9a45c" metalness={0.7} roughness={0.3} />
+          </mesh>
+          <mesh position={[0, 0.18, 0]}>
+            <boxGeometry args={[w, 0.12, 0.004]} />
+            <meshStandardMaterial map={textTexture(item.label || '1', color, '#2b2b2b', 256, 256)} />
+          </mesh>
+        </group>
+      );
+    case 'menu-carta':
+      return (
+        <mesh position={[0, h / 2, 0]} rotation={[-0.15, 0, 0]}>
+          <boxGeometry args={[w, h, 0.003]} />
+          <meshStandardMaterial map={textTexture(item.label || 'Menú', color, '#5a4a3a', 200, 300)} />
+        </mesh>
+      );
+    case 'camino-mesa':
+      return (
+        <mesh position={[0, 0.003, 0]} receiveShadow>
+          <boxGeometry args={[w, 0.004, d]} />
+          <meshStandardMaterial color={color} roughness={0.9} />
+        </mesh>
+      );
     case 'cuadro':
       return <PhotoFrame assetId={item.imageAssetId} w={w} h={h} d={d} frame={color} />;
     case 'espejo':
@@ -675,6 +757,102 @@ function PhotoFrame({ assetId, w, h, d, frame }: { assetId?: string; w: number; 
           <meshBasicMaterial map={textTexture('Sube la foto\ndel cuadro', '#efe9df', '#8a7f70', 512, 384)} />
         )}
       </mesh>
+    </group>
+  );
+}
+
+// ---------- Piezas de mesa ----------
+
+/** Cubierto completo para un comensal; el comensal está en +Z local. */
+function PlaceSetting({ color }: { color: string }) {
+  return (
+    <group>
+      <mesh position={[0, 0.006, 0.02]}>
+        <cylinderGeometry args={[0.15, 0.145, 0.012, 32]} />
+        <meshStandardMaterial color="#c9a45c" metalness={0.5} roughness={0.35} />
+      </mesh>
+      <mesh position={[0, 0.016, 0.02]}>
+        <cylinderGeometry args={[0.13, 0.11, 0.012, 32]} />
+        <meshStandardMaterial color={color} roughness={0.25} />
+      </mesh>
+      <mesh position={[0, 0.03, 0.02]}>
+        <boxGeometry args={[0.1, 0.02, 0.05]} />
+        <meshStandardMaterial color="#efe6d8" roughness={0.9} />
+      </mesh>
+      {[-0.17, -0.19].map((x) => (
+        <mesh key={x} position={[x, 0.004, 0.02]}>
+          <boxGeometry args={[0.012, 0.004, 0.19]} />
+          <meshStandardMaterial color="#cfd3d6" metalness={0.9} roughness={0.2} />
+        </mesh>
+      ))}
+      {[0.17, 0.19].map((x) => (
+        <mesh key={x} position={[x, 0.004, 0.02]}>
+          <boxGeometry args={[0.012, 0.004, 0.19]} />
+          <meshStandardMaterial color="#cfd3d6" metalness={0.9} roughness={0.2} />
+        </mesh>
+      ))}
+      <group position={[0.11, 0, -0.13]}>
+        <Glass />
+      </group>
+      <group position={[0.02, 0, -0.15]} scale={0.85}>
+        <Glass />
+      </group>
+    </group>
+  );
+}
+
+function Glass() {
+  return (
+    <group>
+      <mesh position={[0, 0.004, 0]}>
+        <cylinderGeometry args={[0.03, 0.03, 0.006, 16]} />
+        <meshStandardMaterial color="#e8f0f4" transparent opacity={0.6} roughness={0.05} />
+      </mesh>
+      <mesh position={[0, 0.06, 0]}>
+        <cylinderGeometry args={[0.004, 0.004, 0.11, 8]} />
+        <meshStandardMaterial color="#e8f0f4" transparent opacity={0.6} roughness={0.05} />
+      </mesh>
+      <mesh position={[0, 0.15, 0]}>
+        <cylinderGeometry args={[0.035, 0.022, 0.08, 16, 1, true]} />
+        <meshStandardMaterial color="#e8f0f4" transparent opacity={0.45} roughness={0.05} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  );
+}
+
+function Candle({ h, color, lit }: { h: number; color: string; lit: boolean }) {
+  return (
+    <group>
+      <mesh position={[0, h / 2, 0]}>
+        <cylinderGeometry args={[0.022, 0.022, h, 12]} />
+        <meshStandardMaterial color={color} roughness={0.6} />
+      </mesh>
+      <mesh position={[0, h + 0.02, 0]}>
+        <sphereGeometry args={[0.012, 8, 8]} />
+        <meshBasicMaterial color={lit ? '#ffd27a' : '#f3c98b'} />
+      </mesh>
+    </group>
+  );
+}
+
+function Flowers({ y, r, color, flat = false }: { y: number; r: number; color: string; flat?: boolean }) {
+  const pts = useMemo(() => {
+    const out: [number, number, number, number][] = [];
+    for (let i = 0; i < 14; i++) {
+      const a = i * 2.4;
+      const rr = r * 0.7 * Math.sqrt((i + 0.5) / 14);
+      out.push([Math.cos(a) * rr, (flat ? 0.02 : 0.06) * Math.sin(i * 1.7), Math.sin(a) * rr, 0.05 + (i % 3) * 0.012]);
+    }
+    return out;
+  }, [r, flat]);
+  return (
+    <group position={[0, y, 0]}>
+      {pts.map(([x, yy, z, s], i) => (
+        <mesh key={i} position={[x, yy, z]}>
+          <sphereGeometry args={[s, 10, 8]} />
+          <meshStandardMaterial color={i % 4 === 0 ? '#7da06e' : color} roughness={0.9} />
+        </mesh>
+      ))}
     </group>
   );
 }

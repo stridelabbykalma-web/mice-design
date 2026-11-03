@@ -7,6 +7,8 @@ import { loadGltf } from './Furniture';
 import { requestRectify } from './Rectify';
 import { openPhotoMeasure } from './PhotoMeasure';
 import { parseRoomPlan } from '../lib/roomplan';
+import { useLibrary } from '../lib/library';
+import { roomTemplateOf } from '../lib/rooms';
 import { geocode, satelliteImage, SAT_ATTRIBUTION } from '../lib/satellite';
 import { makeZip } from '../lib/zip';
 import { DEG } from '../lib/geometry';
@@ -67,6 +69,7 @@ export default function SpacePanel() {
             <NumberInput value={space.height} min={2} max={30} onChange={(height) => updateSpace({ height })} suffix="m" />
           </Field>
         </div>
+        <SaveRoom />
         <RoomPlanImport />
         <div className="callout">
           <strong>📏 ¿No tienes las medidas?</strong>
@@ -648,6 +651,28 @@ function RoomPlanImport() {
       >
         Importar medición (.mice-room.json)
       </FileButton>
+      {msg && <p className="hint">{msg}</p>}
+    </div>
+  );
+}
+
+/** Guarda la sala (espacio y elementos fijos) en el catálogo del hotel para reutilizarla. */
+function SaveRoom() {
+  const project = useStore((s) => s.project)!;
+  const add = useLibrary((s) => s.add);
+  const [msg, setMsg] = useState('');
+  return (
+    <div className="row gap wrap">
+      <button
+        className="btn small"
+        onClick={async () => {
+          const room = roomTemplateOf(project);
+          await add('sala', project.space.name || 'Sala', { room });
+          setMsg(`Sala guardada en el hotel con ${room.items.length} elementos fijos. Úsala desde la pantalla de inicio.`);
+        }}
+      >
+        🏨 Guardar esta sala en el hotel
+      </button>
       {msg && <p className="hint">{msg}</p>}
     </div>
   );

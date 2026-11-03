@@ -11,6 +11,7 @@ import { FurnitureMesh, useAssetTexture, useGltf } from './Furniture';
 import { assetUrl } from '../lib/db';
 import { DEG, snapToWall, snapValue, corners } from '../lib/geometry';
 import { analyze, problemItemIds } from '../lib/safety';
+import { attachedDecor, isDecorDef, isTableDef, onTableTop, tableAt } from '../lib/tables';
 
 // ---------- API expuesta fuera del Canvas (capturas, exportación) ----------
 export { sceneApi };
@@ -490,6 +491,12 @@ const ItemNode = memo(function ItemNode({
     const p = new THREE.Vector3();
     if (!e.ray.intersectPlane(floorPlane, p)) return;
     const proj = st.project!;
+    // Al mover una mesa se mueve con su decoración
+    const extra = proj.items
+      .filter((t) => ids.includes(t.id) && isTableDef(findDef(t.type, proj.customCatalog)))
+      .flatMap((t) => attachedDecor(proj, t).map((d) => d.id))
+      .filter((id) => !ids.includes(id));
+    ids = [...ids, ...extra];
     dragState = {
       ids,
       start: p,
@@ -519,7 +526,15 @@ function Items({ project, view }: { project: Project; view: string }) {
   const lightsOn = project.lighting === 'noche' || project.lighting === 'gala';
   // Lo que se coloca encima de un escenario se eleva a su altura.
   const stages = project.items.filter((i) => i.type === 'escenario');
+  const tables = project.items.filter((i) => isTableDef(findDef(i.type, project.customCatalog)));
   const elevation = (it: Item) => {
+    // La decoración de mesa se apoya en el tablero de la mesa sobre la que está.
+    if (isDecorDef(findDef(it.type, project.customCatalog))) {
+      for (const t of tables) {
+        const tdef = findDef(t.type, project.customCatalog);
+        if (onTableTop(t, tdef, it.x, it.z)) return itemDims(t, tdef).h;
+      }
+    }
     if (it.type === 'escenario' || it.type === 'pantalla' || !stages.length) return 0;
     for (const st of stages) {
       const { w, d, h } = itemDims(st, findDef(st.type, project.customCatalog));
@@ -564,10 +579,16 @@ function Ghost({ project }: { project: Project }) {
   if (tool !== 'place' || !placingType || !ghost) return null;
   const def = findDef(placingType, project.customCatalog);
   if (!def) return null;
-  const pos = placementFor(def, ghost, project.space, useStore.getState().snap);
-  const it: Item = { id: 'ghost', type: def.type, x: pos.x, z: pos.z, rot: pos.rot, chairs: def.chairs };
+  const pos = placementFor(def, ghost, project.space, useStore.getState().snap && !isDecorDef(def));
+  const tpl = useStore.getState().placingTemplate;
+  const it: Item = { id: 'ghost', type: def.type, x: pos.x, z: pos.z, rot: pos.rot, chairs: tpl?.base.chairs ?? def.chairs, chairType: tpl?.base.chairType, color: tpl?.base.color };
+  let y = def.mountY ?? 0;
+  if (isDecorDef(def)) {
+    const t = tableAt(project, pos.x, pos.z);
+    if (t) y = itemDims(t, findDef(t.type, project.customCatalog)).h;
+  }
   return (
-    <group position={[pos.x, def.mountY ?? 0, pos.z]} rotation={[0, pos.rot * DEG, 0]}>
+    <group position={[pos.x, y, pos.z]} rotation={[0, pos.rot * DEG, 0]}>
       <FurnitureMesh item={it} def={def} custom={project.customCatalog} wallHeight={project.space.height} lightsOn={false} />
       <Outline item={it} def={def} color="#27ae60" />
     </group>
@@ -671,7 +692,16 @@ function Interaction({ wrap }: { wrap: React.RefObject<HTMLDivElement> }) {
         const p = floorPoint(e, el, camera, raycaster);
         const def = findDef(st.placingType, st.project.customCatalog);
         if (!p || !def) return;
-        const pos = placementFor(def, p, st.project.space, st.snap);
+        const pos = placementFor(def, p, st.project.space, st.snap && !isDecorDef(def));
+        if (st.placingTemplate) {
+          const id = st.placeTemplate(st.placingTemplate, pos.x, pos.z);
+          if (!e.shiftKey) {
+            st.setTool('select');
+            st.select([id]);
+            useInteraction.setState({ ghost: null });
+          }
+          return;
+        }
         const id = st.addItem({ type: def.type, ...pos, chairs: def.chairs, centerpiece: def.chairs ? true : undefined, y: def.mountY });
         if (!e.shiftKey) {
           st.setTool('select');

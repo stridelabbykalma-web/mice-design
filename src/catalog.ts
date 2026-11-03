@@ -3,6 +3,7 @@ import type { CatalogDef, Category, Item } from './types';
 export const CATEGORY_LABELS: Record<Category, string> = {
   hotel: 'Mobiliario del hotel (escaneado)',
   mesas: 'Mesas',
+  'mesa-deco': 'Decoración de mesa',
   asientos: 'Asientos',
   escenario: 'Escenario y audiovisuales',
   decoracion: 'Decoración',
@@ -25,6 +26,17 @@ export const BASE_CATALOG: CatalogDef[] = [
   { type: 'mesa-coctel', name: 'Mesa alta de cóctel Ø60', category: 'mesas', w: 0.6, d: 0.6, h: 1.1, price: 12, color: '#ffffff', standing: 5 },
   { type: 'buffet', name: 'Mesa de buffet 240×75', category: 'mesas', w: 2.4, d: 0.75, h: 0.9, price: 25, color: '#ffffff' },
   { type: 'barra', name: 'Barra de bar', category: 'mesas', w: 3, d: 0.7, h: 1.1, price: 120, color: '#3a2e25', resizable: true },
+  // Decoración de mesa (se apoya sola sobre la mesa en la que se coloca)
+  { type: 'cubierto', name: 'Cubierto completo (plato, cubiertos, copas)', category: 'mesa-deco', w: 0.36, d: 0.3, h: 0.2, price: 2.5, color: '#ffffff' },
+  { type: 'bajoplato', name: 'Bajoplato', category: 'mesa-deco', w: 0.33, d: 0.33, h: 0.02, price: 1.5, color: '#c9a45c' },
+  { type: 'copa', name: 'Copa', category: 'mesa-deco', w: 0.08, d: 0.08, h: 0.2, price: 0.6, color: '#dfe8ee' },
+  { type: 'vela', name: 'Vela', category: 'mesa-deco', w: 0.08, d: 0.08, h: 0.16, price: 1, color: '#f6f0e2' },
+  { type: 'candelabro', name: 'Candelabro de 3 velas', category: 'mesa-deco', w: 0.35, d: 0.12, h: 0.5, price: 12, color: '#c9a45c' },
+  { type: 'centro-alto', name: 'Centro floral alto', category: 'mesa-deco', w: 0.4, d: 0.4, h: 0.75, price: 45, color: '#e6b8c2' },
+  { type: 'centro-bajo', name: 'Centro floral bajo', category: 'mesa-deco', w: 0.45, d: 0.45, h: 0.22, price: 30, color: '#f1d3a6' },
+  { type: 'numero-mesa', name: 'Número de mesa', category: 'mesa-deco', w: 0.12, d: 0.1, h: 0.25, price: 2, color: '#ffffff' },
+  { type: 'menu-carta', name: 'Carta de menú', category: 'mesa-deco', w: 0.12, d: 0.05, h: 0.18, price: 1, color: '#ffffff' },
+  { type: 'camino-mesa', name: 'Camino de mesa', category: 'mesa-deco', w: 1.6, d: 0.35, h: 0.004, price: 6, color: '#8a2433', resizable: true },
   // Asientos
   { type: 'silla', name: 'Silla de banquete', category: 'asientos', w: 0.45, d: 0.45, h: 0.9, price: 3, color: '#c9a45c', seats: 1 },
   { type: 'silla-conferencia', name: 'Silla de conferencia', category: 'asientos', w: 0.5, d: 0.5, h: 0.85, price: 3, color: '#2f3a4a', seats: 1 },

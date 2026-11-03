@@ -78,12 +78,12 @@ function useKeyboard() {
         return st.removeItems(sel);
       }
       const rot = { q: -15, e: 15, r: 90 }[e.key.toLowerCase()];
-      if (rot) return st.updateItems(sel, (i) => ({ rot: i.rot + rot }));
+      if (rot) return st.rotateItems(sel, rot);
       const step = e.shiftKey ? 0.5 : 0.1;
       const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
       if (mv) {
         e.preventDefault();
-        st.updateItems(sel, (i) => ({ x: Math.round((i.x + mv[0]) * 100) / 100, z: Math.round((i.z + mv[1]) * 100) / 100 }));
+        st.updateItems(st.withDecor(sel), (i) => ({ x: Math.round((i.x + mv[0]) * 100) / 100, z: Math.round((i.z + mv[1]) * 100) / 100 }));
       }
     };
     window.addEventListener('keydown', onKey);

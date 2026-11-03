@@ -69,6 +69,7 @@ export interface Space {
 
 export type Category =
   | 'mesas'
+  | 'mesa-deco'
   | 'asientos'
   | 'escenario'
   | 'decoracion'
@@ -104,6 +105,8 @@ export interface CatalogDef {
   fitToDims?: boolean;
   /** Corrección del eje vertical del modelo (grados sobre X). */
   tilt?: number;
+  /** Pieza que se apoya sobre la mesa en la que se coloque (decoración de mesa escaneada). */
+  onTable?: boolean;
   /** Altura de colocación por defecto (elementos que se cuelgan en la pared). */
   mountY?: number;
   description?: string;
@@ -163,3 +166,33 @@ export interface Project {
 
 export type ViewMode = '3d' | 'planta' | 'paseo';
 export type Tool = 'select' | 'place' | 'measure' | 'eyedropper';
+
+/** Pieza de una mesa decorada, en coordenadas locales de la mesa. */
+export type TemplateDecor = Omit<Item, 'id' | 'x' | 'z' | 'rot'> & { dx: number; dz: number; drot: number };
+
+/** Mesa decorada guardada en el catálogo del hotel. */
+export interface TableTemplate {
+  base: Omit<Item, 'id' | 'x' | 'z' | 'rot' | 'label'>;
+  decor: TemplateDecor[];
+  /** Definiciones del catálogo propio que usa (mesa, sillas o piezas escaneadas). */
+  defs: CatalogDef[];
+}
+
+/** Sala guardada en el catálogo del hotel: espacio y elementos fijos (arquitectura, cuadros...). */
+export interface RoomTemplate {
+  space: Space;
+  items: Item[];
+  defs: CatalogDef[];
+}
+
+export type LibraryKind = 'mueble' | 'mesa' | 'sala';
+
+export interface LibraryEntry {
+  id: string;
+  kind: LibraryKind;
+  name: string;
+  createdAt: number;
+  def?: CatalogDef;
+  table?: TableTemplate;
+  room?: RoomTemplate;
+}
