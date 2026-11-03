@@ -9,6 +9,7 @@ import OrderSheet from './components/OrderSheet';
 import Survey from './components/Survey';
 import { RectifyHost } from './components/Rectify';
 import { PhotoMeasureHost } from './components/PhotoMeasure';
+import { CompareModal, VariantMenu } from './components/Variants';
 import { downloadBlob, exportProject } from './lib/db';
 import { analyze, capacitySummary } from './lib/safety';
 import { LAYOUT_INFO } from './lib/layouts';
@@ -24,8 +25,9 @@ async function capture(view: ViewMode): Promise<string | undefined> {
   st.select([]);
   if (prev !== view) {
     st.setView(view);
-    await sleep(900);
-  } else await sleep(100);
+    // Tiempo para montar la vista y cargar texturas y escaneos
+    await sleep(st.project?.space.model ? 2000 : 1200);
+  } else await sleep(150);
   const url = sceneApi.gl?.domElement.toDataURL('image/png');
   if (prev !== view) st.setView(prev);
   st.select(sel);
@@ -103,6 +105,7 @@ function Editor() {
   const project = useStore((s) => s.project)!;
   const st = useStore();
   const [order, setOrder] = useState<{ plan?: string; view?: string } | null>(null);
+  const [compare, setCompare] = useState(false);
   const [busy, setBusy] = useState('');
   const [mobilePanel, setMobilePanel] = useState(false);
   useKeyboard();
@@ -144,6 +147,7 @@ function Editor() {
             {project.space.name} · {m(project.space.width, 1)}×{m(project.space.depth, 1)} m · {cap.total} pax
           </span>
         </div>
+        <VariantMenu onCompare={() => setCompare(true)} />
         <div className="seg" role="group" aria-label="Vista">
           {(['3d', 'planta', 'paseo'] as ViewMode[]).map((v) => (
             <button key={v} className={st.view === v ? 'active' : ''} onClick={() => st.setView(v)}>
@@ -289,6 +293,7 @@ function Editor() {
         </main>
       </div>
       {order && <OrderSheet images={order} onClose={() => setOrder(null)} />}
+      {compare && <CompareModal capture={capture} onClose={() => setCompare(false)} />}
       <RectifyHost />
       <PhotoMeasureHost />
     </div>
@@ -317,6 +322,7 @@ function ClientView() {
             </button>
           ))}
         </div>
+        <VariantMenu client />
         <select className="light-select" value={project.lighting} onChange={(e) => st.setLighting(e.target.value as LightingPreset)}>
           <option value="dia">☀️ Día</option>
           <option value="tarde">🌇 Tarde</option>

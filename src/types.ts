@@ -151,6 +151,15 @@ export interface EventInfo {
 
 export type LightingPreset = 'dia' | 'tarde' | 'noche' | 'gala';
 
+/** Propuesta alternativa de montaje dentro de un mismo evento. */
+export interface Variant {
+  id: string;
+  name: string;
+  items: Item[];
+  lighting: LightingPreset;
+  layout: LayoutType | '';
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -162,6 +171,9 @@ export interface Project {
   customCatalog: CatalogDef[];
   event: EventInfo;
   lighting: LightingPreset;
+  /** Propuestas alternativas; la activa vive en items/lighting. */
+  variants?: Variant[];
+  activeVariant?: string;
 }
 
 export type ViewMode = '3d' | 'planta' | 'paseo';

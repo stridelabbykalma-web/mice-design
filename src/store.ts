@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { CatalogDef, Item, LightingPreset, Project, Space, Tool, ViewMode, EventInfo, TableTemplate } from './types';
+import type { CatalogDef, Item, LightingPreset, Project, Space, Tool, ViewMode, EventInfo, TableTemplate, Variant } from './types';
 import { attachedDecor, decorForTable, isTableDef } from './lib/tables';
 import { db, uid } from './lib/db';
 import { findDef } from './catalog';
@@ -48,6 +48,11 @@ interface State {
   ensureDefs(defs: CatalogDef[]): void;
   /** Aplica una mesa decorada a varias mesas (sustituye su decoración). */
   applyTemplate(tpl: TableTemplate, tableIds: string[]): void;
+  /** Propuestas: crea una copia de la actual (o vacía), cambia, renombra y elimina. */
+  createVariant(copy: boolean): void;
+  switchVariant(id: string): void;
+  renameVariant(id: string, name: string): void;
+  deleteVariant(id: string): void;
   /** Coloca una mesa decorada nueva. */
   placeTemplate(tpl: TableTemplate, x: number, z: number): string;
   setSnap(s: boolean): void;
@@ -104,6 +109,15 @@ export function newProject(space: Space, name: string, hotel: string): Project {
     event: defaultEvent(),
     lighting: space.outdoor ? 'dia' : 'tarde',
   };
+}
+
+/**
+ * Lista de propuestas con la activa actualizada con el montaje actual. Los proyectos antiguos
+ * sin propuestas pasan a tener una «Propuesta A» con su montaje.
+ */
+export function syncedVariants(p: Project): Variant[] {
+  if (!p.variants?.length) return [{ id: p.activeVariant ?? 'v_a', name: 'Propuesta A', items: p.items, lighting: p.lighting, layout: p.event.layout }];
+  return p.variants.map((v) => (v.id === p.activeVariant ? { ...v, items: p.items, lighting: p.lighting, layout: p.event.layout } : v));
 }
 
 let saveTimer: number | undefined;
@@ -189,6 +203,40 @@ export const useStore = create<State>((set, get) => {
         }
       }
       mutate((pr) => ({ ...pr, items: pr.items.map((it) => (moves.has(it.id) ? { ...it, ...moves.get(it.id) } : it)) }));
+    },
+    createVariant: (copy) => {
+      const p = get().project;
+      if (!p) return;
+      const vs = syncedVariants(p);
+      const letter = String.fromCharCode(65 + vs.length);
+      const v: Variant = {
+        id: uid('v_'),
+        name: `Propuesta ${letter}`,
+        items: copy ? p.items.map((i) => ({ ...i, id: uid('i_') })) : p.items.filter((i) => findDef(i.type, p.customCatalog)?.category === 'arquitectura').map((i) => ({ ...i, id: uid('i_') })),
+        lighting: p.lighting,
+        layout: copy ? p.event.layout : '',
+      };
+      set({ past: [], future: [], selection: [] });
+      mutate((pr) => ({ ...pr, variants: [...vs, v], activeVariant: v.id, items: v.items, event: { ...pr.event, layout: v.layout } }));
+    },
+    switchVariant: (id) => {
+      const p = get().project;
+      if (!p || id === p.activeVariant) return;
+      const vs = syncedVariants(p);
+      const v = vs.find((x) => x.id === id);
+      if (!v) return;
+      set({ past: [], future: [], selection: [] });
+      mutate((pr) => ({ ...pr, variants: vs, activeVariant: id, items: v.items, lighting: v.lighting, event: { ...pr.event, layout: v.layout } }));
+    },
+    renameVariant: (id, name) => mutate((pr) => ({ ...pr, variants: syncedVariants(pr).map((v) => (v.id === id ? { ...v, name } : v)) })),
+    deleteVariant: (id) => {
+      const p = get().project;
+      if (!p) return;
+      const vs = syncedVariants(p).filter((v) => v.id !== id);
+      if (!vs.length) return;
+      const next = id === p.activeVariant ? vs[0] : vs.find((v) => v.id === p.activeVariant)!;
+      set({ past: [], future: [], selection: [] });
+      mutate((pr) => ({ ...pr, variants: vs, activeVariant: next.id, items: next.items, lighting: next.lighting, event: { ...pr.event, layout: next.layout } }));
     },
     withDecor: (ids) => {
       const p = get().project;

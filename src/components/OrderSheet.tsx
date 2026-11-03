@@ -38,7 +38,10 @@ export default function OrderSheet({ images, onClose }: { images: { plan?: strin
           <div>
             <div className="order-brand">◆ MICE Design · {project.hotel || 'Hotel'}</div>
             <h1>Orden de montaje</h1>
-            <p className="order-sub">{project.name}</p>
+            <p className="order-sub">
+              {project.name}
+              {project.variants && project.variants.length > 1 && ` · ${project.variants.find((v) => v.id === project.activeVariant)?.name ?? ''}`}
+            </p>
           </div>
           <table className="order-meta">
             <tbody>
