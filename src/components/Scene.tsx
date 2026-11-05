@@ -9,6 +9,7 @@ import { findDef, footprint, itemDims } from '../catalog';
 import { sceneApi } from './sceneApi';
 import { ChairInstances, InstancedChairsContext } from './ChairInstances';
 import { XRBridge } from './XRBridge';
+import { alignSplat, snapToCorner } from '../lib/align';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { useXR } from '../lib/xr';
 import { FurnitureMesh, useAssetTexture, useGltf } from './Furniture';
@@ -326,7 +327,7 @@ function SplatSpace({ space }: { space: Space }) {
         if (!alive || !url || !holder.current) return;
         viewer = new GS.DropInViewer({ gpuAcceleratedSort: false, sharedMemoryForWorkers: false, dynamicScene: false, sceneRevealMode: 2 /* instantánea */ }) as unknown as typeof viewer;
         holder.current.add(viewer!);
-        const format = { ply: GS.SceneFormat.Ply, splat: GS.SceneFormat.Splat, ksplat: GS.SceneFormat.KSplat }[sp.format];
+        const format = { ply: GS.SceneFormat.Ply, splat: GS.SceneFormat.Splat, ksplat: GS.SceneFormat.KSplat, spz: (GS.SceneFormat as unknown as Record<string, number>).Spz ?? 3 }[sp.format];
         await viewer!.addSplatScene(url, { format, showLoadingUI: false, splatAlphaRemovalThreshold: 5, progressiveLoad: false });
         if (alive) setStatus('ok');
       } catch (e) {
@@ -826,6 +827,25 @@ function XrEnvironment() {
   return null;
 }
 
+/** Puntos marcados para encajar el escaneo con el plano (azul: escaneo; verde: plano). */
+function AlignDraft() {
+  const pts = useStore((s) => s.drawPts);
+  const tool = useStore((s) => s.tool);
+  if (tool !== 'align' || !pts.length) return null;
+  return (
+    <group>
+      {pts.map((p, i) => (
+        <mesh key={i} position={[p.x, 0.06, p.z]}>
+          <sphereGeometry args={[0.14, 12, 10]} />
+          <meshBasicMaterial color={i % 2 ? '#2e8540' : '#2f80ed'} depthTest={false} />
+        </mesh>
+      ))}
+      {pts.length >= 2 && <Polyline points={[pts[0], pts[1]].map((p) => new THREE.Vector3(p.x, 0.06, p.z))} color="#f2c94c" overlay />}
+      {pts.length >= 4 && <Polyline points={[pts[2], pts[3]].map((p) => new THREE.Vector3(p.x, 0.06, p.z))} color="#f2c94c" overlay />}
+    </group>
+  );
+}
+
 /** Contorno que se está dibujando en la planta. */
 function OutlineDraft() {
   const pts = useStore((s) => s.drawPts);
@@ -933,6 +953,24 @@ function Interaction({ wrap }: { wrap: React.RefObject<HTMLDivElement> }) {
           st.select([id]);
           useInteraction.setState({ ghost: null });
         }
+      } else if (st.tool === 'align' && st.project.space.splat) {
+        // Encajar el escaneo: punto del escaneo, su punto del plano, otro del escaneo, su punto del plano
+        const p = floorPoint(e, el, camera, raycaster);
+        if (!p) return;
+        const n = st.drawPts.length;
+        const q = n % 2 === 1 ? snapToCorner({ x: p.x, z: p.z }, roomOutline(st.project.space)) : { x: p.x, z: p.z };
+        const pts = [...st.drawPts, q];
+        if (pts.length < 4) {
+          st.setDrawPts(pts);
+          return;
+        }
+        try {
+          st.updateSpace({ splat: alignSplat(st.project.space.splat, pts[0], pts[2], pts[1], pts[3]) });
+        } catch (err) {
+          window.alert((err as Error).message);
+        }
+        st.setDrawPts([]);
+        st.setTool('select');
       } else if (st.tool === 'outline') {
         const p = floorPoint(e, el, camera, raycaster);
         if (p) st.setDrawPts([...st.drawPts, { x: snapValue(p.x, 0.05), z: snapValue(p.z, 0.05) }]);
@@ -1110,6 +1148,7 @@ export default function Scene() {
         <MeasureViz />
         <CommentPins />
         <OutlineDraft />
+        <AlignDraft />
         <Interaction wrap={wrap} />
         <ApiBridge root={root} />
         <XRBridge root={root} />

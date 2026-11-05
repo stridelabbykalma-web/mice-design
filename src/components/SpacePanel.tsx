@@ -804,20 +804,20 @@ function SplatSection() {
   return (
     <Section title="✨ Gaussian splatting (realismo fotográfico)" defaultOpen={!!sp}>
       <p className="hint">
-        Importa la sala capturada como <em>splat</em> (.ply, .splat o .ksplat; lo exportan Scaniverse, Polycam, Luma o Postshot). Se ve prácticamente como un vídeo, incluidos
-        brillos, cristales y lámparas, y el evento se monta encima.
+        Importa la sala capturada como <em>splat</em> (.spz, .ply, .splat o .ksplat; lo exportan Scaniverse, Polycam, Luma o Postshot). Se ve prácticamente como un vídeo,
+        incluidos brillos, cristales y lámparas, y el evento se monta encima. Lo mejor: medidas del plano y aspecto del splat, encajados con «Encajar con el plano».
       </p>
       <FileButton
-        accept=".ply,.splat,.ksplat"
+        accept=".spz,.ply,.splat,.ksplat"
         onFile={async (f) => {
           const ext = f.name.toLowerCase().split('.').pop();
-          const format = ext === 'splat' ? 'splat' : ext === 'ksplat' ? 'ksplat' : 'ply';
+          const format = ext === 'splat' ? 'splat' : ext === 'ksplat' ? 'ksplat' : ext === 'spz' ? 'spz' : 'ply';
           const id = await addAsset(f, f.name);
           updateSpace({
             splat: { assetId: id, name: f.name, format, scale: 1, rotation: 0, tilt: format === 'ply' ? 180 : 0, offsetX: 0, offsetY: 0, offsetZ: 0 },
             showWalls: false,
           });
-          setMsg('Cargando… Si la sala aparece boca abajo o tumbada, corrige el eje vertical. Ajusta la escala midiendo una puerta con «Medir».');
+          setMsg('Cargando… Si la sala aparece boca abajo o tumbada, corrige el eje vertical y la altura del suelo; después pulsa «Encajar con el plano».');
         }}
       >
         {sp ? 'Cambiar splat' : 'Importar splat de la sala'}
@@ -851,7 +851,21 @@ function SplatSection() {
               <NumberInput value={sp.offsetY} step={0.01} onChange={(offsetY) => set({ offsetY })} suffix="m" />
             </Field>
           </div>
-          <p className="hint">Ajusta las medidas del espacio (arriba) a las de la sala para que el aforo y los montajes sean correctos. Con splats no está disponible «Vaciar la sala».</p>
+          <button
+            className="btn small primary"
+            onClick={() => {
+              const st = useStore.getState();
+              st.setView('planta');
+              st.setDrawPts([]);
+              st.setTool('align');
+            }}
+          >
+            📐 Encajar con el plano (4 clics)
+          </button>
+          <p className="hint">
+            Las medidas salen del plano (contorno y altura del espacio, arriba) y el aspecto, del splat. Al encajarlo, la escala, el giro y la posición se calculan solos. Con
+            splats no está disponible «Vaciar la sala».
+          </p>
           <button className="btn small danger" onClick={() => updateSpace({ splat: undefined, showWalls: !project.space.outdoor && !project.space.model })}>
             Quitar splat
           </button>

@@ -40,7 +40,7 @@ export interface ImportedModel {
 export interface SplatScene {
   assetId: string;
   name: string;
-  format: 'ply' | 'splat' | 'ksplat';
+  format: 'ply' | 'splat' | 'ksplat' | 'spz';
   scale: number;
   /** Giro alrededor del eje vertical (grados). */
   rotation: number;
@@ -217,7 +217,7 @@ export interface Project {
 }
 
 export type ViewMode = '3d' | 'planta' | 'paseo';
-export type Tool = 'select' | 'place' | 'measure' | 'eyedropper' | 'outline';
+export type Tool = 'select' | 'place' | 'measure' | 'eyedropper' | 'outline' | 'align';
 
 /** Pieza de una mesa decorada, en coordenadas locales de la mesa. */
 export type TemplateDecor = Omit<Item, 'id' | 'x' | 'z' | 'rot'> & { dx: number; dz: number; drot: number };

@@ -335,6 +335,32 @@ function Editor() {
               </button>
             </div>
           )}
+          {st.tool === 'align' && (
+            <div className="hint-bar">
+              {
+                [
+                  '1/4 · Haz clic en una esquina del suelo del ESCANEO',
+                  '2/4 · Ahora en la misma esquina del PLANO (se ajusta sola a la esquina)',
+                  '3/4 · Otra esquina del ESCANEO, cuanto más lejos de la primera, mejor',
+                  '4/4 · La misma esquina en el PLANO',
+                ][st.drawPts.length % 4]
+              }
+              {st.drawPts.length > 0 && (
+                <button className="link" onClick={() => st.setDrawPts(st.drawPts.slice(0, -1))}>
+                  Deshacer punto
+                </button>
+              )}
+              <button
+                className="link"
+                onClick={() => {
+                  st.setDrawPts([]);
+                  st.setTool('select');
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
           {st.tool === 'outline' && (
             <div className="hint-bar">
               Haz clic en cada esquina de la sala ({st.drawPts.length} puntos)

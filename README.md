@@ -35,6 +35,18 @@ Para generar un único archivo `dist/index.html` autocontenido, que se puede env
 SINGLE=1 npx vite build
 ```
 
+## Método recomendado para el duplicado 3D (plano + iPhone 16 Pro + Quest 3S)
+
+Cada herramienta aporta lo que mejor hace: **las medidas salen del plano, el aspecto del iPhone y la comprobación en la sala, de las gafas**.
+
+1. **Plano del hotel → geometría exacta.** En *Espacio*, contorno (rectángulo o polígono dibujado sobre el plano a escala), altura, puertas, salidas y columnas. De aquí salen el aforo, la evacuación, la accesibilidad y los montajes.
+2. **iPhone 16 Pro, RoomPlan (MICE Capture) → comprobar el plano.** Una pasada por la sala vacía: si alguna medida difiere más de 5 cm del plano, se corrige (los planos no siempre reflejan obras posteriores).
+3. **iPhone 16 Pro, Gaussian splatting → aspecto fotográfico.** Con Scaniverse (gratis, procesa en el propio iPhone): sala vacía, luz de trabajo encendida, recorrido lento en dos alturas (pecho y por encima de la cabeza) cubriendo paredes, cuadros, techo y lámparas; exportar en **.spz** o .ply. En la app: *Importar splat* → *Encajar con el plano (4 clics)*: dos esquinas del escaneo y sus esquinas del plano; la escala, el giro y la posición se calculan solos.
+4. **Revopoint Inspire 2 → mobiliario real** (silla y mesa de banquete), para que el montaje use las piezas del hotel.
+5. **Meta Quest 3S → verlo.** En la sala vacía, *Realidad mixta*: el montaje sobre la sala real, con sombras en el suelo, en directo desde el ordenador. Fuera del hotel, *Realidad virtual*: el gemelo completo con el splat. Las gafas no sirven para escanear el aspecto (una web no puede usar sus cámaras) y sin sensor de profundidad miden peor que el iPhone.
+
+Para splats en las gafas conviene que el archivo no pase de ~1 millón de puntos (Scaniverse permite elegir la calidad al exportar).
+
 ## Gemelo digital de la sala
 
 El objetivo es que el espacio sea un **doble exacto de la sala real**, decoración incluida, y que el evento se monte encima.
