@@ -11,6 +11,7 @@ import type { CatalogDef, Item, LayoutType, Project } from '../types';
 import { findDef, footprint, itemCapacity, itemDims } from '../catalog';
 import { OBB, obbOverlap, toWorld } from './geometry';
 import { insideSpace, roomArea } from './outline';
+import { checkAccessibility } from './accessibility';
 
 export type Severity = 'ok' | 'aviso' | 'error';
 
@@ -66,7 +67,19 @@ export function capacitySummary(project: Project) {
   return { seated, standing, total: seated + standing };
 }
 
-export function analyze(project: Project, lang: 'es' | 'en' = 'es'): { checks: Check[]; area: number; maxOccupancy: number; occupancy: number } {
+type Analysis = { checks: Check[]; area: number; maxOccupancy: number; occupancy: number };
+// Un resultado por versión del proyecto: la barra, el panel y la escena comparten el cálculo
+const cache = new WeakMap<Project, Partial<Record<'es' | 'en', Analysis>>>();
+
+export function analyze(project: Project, lang: 'es' | 'en' = 'es'): Analysis {
+  const hit = cache.get(project)?.[lang];
+  if (hit) return hit;
+  const res = analyzeUncached(project, lang);
+  cache.set(project, { ...(cache.get(project) ?? {}), [lang]: res });
+  return res;
+}
+
+function analyzeUncached(project: Project, lang: 'es' | 'en'): Analysis {
   const L = (es: string, en: string) => (lang === 'en' ? en : es);
   const { space, items, customCatalog, event } = project;
   const checks: Check[] = [];
@@ -233,6 +246,36 @@ export function analyze(project: Project, lang: 'es' | 'en' = 'es'): { checks: C
       });
     }
   }
+
+  // 7. Accesibilidad (silla de ruedas): recorrido de 1,20 m hasta cada mesa y giro en la puerta
+  const acc = checkAccessibility(project);
+  if (acc.hasDoor && acc.tables > 0) {
+    const nU = acc.unreachable.length;
+    checks.push(
+      nU
+        ? {
+            id: 'accesible',
+            severity: 'aviso',
+            title: L(`${nU} de ${acc.tables} mesas sin recorrido accesible desde la entrada`, `${nU} of ${acc.tables} tables without an accessible route from the entrance`),
+            detail: 'Una silla de ruedas necesita un paso libre de 1,20 m (CTE DB-SUA 9) desde la puerta hasta la mesa. Abre un pasillo o reserva para estas personas otra mesa.',
+            itemIds: acc.unreachable,
+          }
+        : {
+            id: 'accesible',
+            severity: 'ok',
+            title: L('Todas las mesas tienen recorrido accesible (1,20 m)', 'All tables have an accessible route (1.20 m)'),
+            detail: 'Desde la entrada se llega a cada mesa por un paso libre de al menos 1,20 m (CTE DB-SUA 9).',
+          },
+    );
+  }
+  if (acc.doorBlockers.length)
+    checks.push({
+      id: 'giro-puerta',
+      severity: 'aviso',
+      title: L('Sin espacio de giro de 1,50 m delante de la puerta', 'No 1.50 m turning space in front of the door'),
+      detail: 'Delante de la puerta principal debe quedar un círculo libre de 1,50 m para que una silla de ruedas pueda girar.',
+      itemIds: acc.doorBlockers,
+    });
 
   return { checks, area, maxOccupancy, occupancy };
 }

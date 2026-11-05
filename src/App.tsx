@@ -12,6 +12,7 @@ import { CompareModal, VariantMenu } from './components/Variants';
 import { ClientComments, ShareModal } from './components/Share';
 import { SyncIndicator } from './components/SyncPanel';
 import { ArModal } from './components/ArModal';
+import { projectToDxf } from './lib/dxf';
 import { XrButton } from './components/XrButton';
 import { loadShare, sharedIdFromHash } from './lib/cloud';
 import { normalizeOutline, roomArea } from './lib/outline';
@@ -203,6 +204,9 @@ function Editor() {
             </button>
             <button onClick={openOrder}>Orden de montaje / propuesta (PDF)</button>
             <button onClick={() => setAr(true)}>Ver en la sala con el iPhone (realidad aumentada)</button>
+            <button onClick={() => downloadBlob(new Blob([projectToDxf(project)], { type: 'application/dxf' }), `${slug(project.name)}.dxf`)}>
+              Plano para AutoCAD (.dxf)
+            </button>
             <button onClick={exportGlb}>Modelo 3D del evento (.glb)</button>
             <button
               onClick={async () => {
