@@ -1,8 +1,21 @@
 // Persistencia local en IndexedDB: proyectos y archivos (planos, modelos 3D, vídeos).
 import type { LibraryEntry, Project } from '../types';
 
-const DB_NAME = 'mice-design';
+const BASE_DB = 'mice-design';
 const DB_VERSION = 2;
+
+/**
+ * Cada hotel con sesión iniciada tiene su propia base de datos local, para que los proyectos
+ * de un hotel no aparezcan en otro si se comparte el ordenador. Sin cuenta se usa la de siempre.
+ */
+export function localDbName(): string {
+  try {
+    const h = JSON.parse(localStorage.getItem('mice-hotel') ?? 'null') as { id?: string } | null;
+    return h?.id ? `${BASE_DB}-h-${h.id}` : BASE_DB;
+  } catch {
+    return BASE_DB;
+  }
+}
 
 export interface StoredAsset {
   id: string;
@@ -13,10 +26,9 @@ export interface StoredAsset {
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
-function openDb(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+function openNamed(name: string): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(name, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
@@ -27,7 +39,48 @@ function openDb(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+function openDb(): Promise<IDBDatabase> {
+  dbPromise ??= openNamed(localDbName());
   return dbPromise;
+}
+
+function getAllFrom<T>(d: IDBDatabase, store: string): Promise<T[]> {
+  return new Promise((resolve, reject) => {
+    const req = d.transaction(store, 'readonly').objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result as T[]);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Proyectos guardados en este navegador sin cuenta (para pasarlos al hotel). */
+export async function countLocalWithoutAccount(): Promise<number> {
+  if (localDbName() === BASE_DB) return 0;
+  try {
+    const d = await openNamed(BASE_DB);
+    const n = (await getAllFrom<Project>(d, 'projects')).length + (await getAllFrom<LibraryEntry>(d, 'library')).length;
+    d.close();
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
+/** Copia al hotel los proyectos, el catálogo y los archivos guardados sin cuenta. */
+export async function copyLocalWithoutAccount(): Promise<number> {
+  const d = await openNamed(BASE_DB);
+  const projects = await getAllFrom<Project>(d, 'projects');
+  const library = await getAllFrom<LibraryEntry>(d, 'library');
+  const assets = await getAllFrom<StoredAsset>(d, 'assets');
+  d.close();
+  for (const a of assets) await db.saveAsset(a);
+  // Fecha nueva para que se suban a la nube en la siguiente sincronización
+  const now = Date.now();
+  for (const p of projects) if (!(await db.getProject(p.id))) await db.saveProject({ ...p, updatedAt: now });
+  for (const e of library) await db.saveLibrary({ ...e, updatedAt: now });
+  window.dispatchEvent(new Event('mice-saved'));
+  return projects.length + library.length;
 }
 
 function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {

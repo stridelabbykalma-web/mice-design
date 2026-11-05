@@ -10,7 +10,8 @@ import { RectifyHost } from './components/Rectify';
 import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { CompareModal, VariantMenu } from './components/Variants';
 import { ClientComments, ShareModal } from './components/Share';
-import { SyncIndicator } from './components/SyncPanel';
+import { AuthScreen, LiveBadge, SyncIndicator } from './components/SyncPanel';
+import { needsLogin, useAuth } from './lib/auth';
 import { ArModal } from './components/ArModal';
 import { projectToDxf } from './lib/dxf';
 import { activeSession, logEvent, stopSession } from './lib/usageLog';
@@ -429,7 +430,13 @@ function ClientView() {
           ))}
         </div>
         <div className="spacer" />
+        {st.readOnly && !st.shareId && <LiveBadge />}
         <XrButton />
+        {st.readOnly && !st.shareId && (
+          <button className="btn" onClick={st.closeProject}>
+            ← Proyectos
+          </button>
+        )}
         {!st.readOnly && (
           <button className="btn" onClick={() => st.setClientMode(false)}>
             {T('Salir de la vista cliente')}
@@ -498,6 +505,8 @@ export default function App() {
   const project = useStore((s) => s.project);
   const [survey, setSurvey] = useState(false);
   const [sharedId] = useState(sharedIdFromHash);
+  // Volver a pintar al entrar, salir o cambiar de hotel
+  useAuth((s) => [s.session?.user.id, s.hotel?.id, s.offline].join());
   if (sharedId && !project) return <SharedLoader id={sharedId} />;
   if (survey)
     return (
@@ -505,5 +514,6 @@ export default function App() {
         <Survey onBack={() => setSurvey(false)} />
       </Suspense>
     );
+  if (!project && needsLogin()) return <AuthScreen />;
   return project ? <Editor /> : <StartScreen onSurvey={() => setSurvey(true)} />;
 }

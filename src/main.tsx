@@ -17,7 +17,18 @@ import { sceneApi } from './components/sceneApi';
 
 // Sincronización entre dispositivos (si este dispositivo está vinculado y no es un enlace de cliente)
 import { startAutoSync } from './lib/sync';
-if (!location.hash.startsWith('#p-')) startAutoSync();
+import { isViewer, startAuth } from './lib/auth';
+if (!location.hash.startsWith('#p-')) {
+  startAuth();
+  startAutoSync();
+  // Gafas y pantallas (solo ver): cada proyecto se abre como presentación, sin editar
+  useStore.subscribe((s, prev) => {
+    if (s.project && s.project.id !== prev.project?.id && isViewer()) {
+      s.setCloud({ readOnly: true });
+      s.setClientMode(true);
+    }
+  });
+}
 
 // Gafas de realidad mixta / virtual (WebXR): comprobar si este navegador las admite
 import { detectXR, useXR } from './lib/xr';

@@ -11,7 +11,9 @@
 ### Nube (Supabase)
 - [ ] Revocar la clave secreta `sb_secret_…` que se compartió en el chat y generar otra (no hace falta en la app).
 - [ ] Ejecutar `supabase/schema.sql` en el SQL Editor y pasar la *Project URL* para ponerla en `src/lib/cloud.ts`.
-- [ ] Probar con el iPhone real: vincular por QR y capturar fotos desde el móvil.
+- [ ] En Supabase: *Authentication → Sign In / Providers*: activar «Allow anonymous sign-ins» (gafas) y decidir si se pide confirmar el correo.
+- [ ] Crear la cuenta del hotel, emparejar las Quest con «🥽 Ver en gafas» y probar el directo en la sala.
+- [ ] Probar con el iPhone real: emparejar por QR y capturar fotos desde el móvil.
 
 ### Caso práctico (OE6)
 - [ ] Elegir 1 o 2 salas reales y pedir permiso al hotel por escrito.
@@ -55,9 +57,10 @@ Descartadas o aplazadas:
 - [x] Realidad aumentada en iPhone/iPad (USDZ) y modo gafas WebXR (realidad mixta y virtual).
 - [x] Pruebas automáticas (35) ejecutadas en GitHub Actions antes de publicar.
 - [x] Plano en DXF, comprobación de accesibilidad y registro automático de uso en las pruebas.
+- [x] Realidad mixta más realista: sombras sobre el suelo real, luz neutra, reflejos y más nitidez.
+- [x] Cuentas de hotel con inicio de sesión y roles; gafas y móviles emparejados con código; diseño en el ordenador visto en directo en las gafas.
 
 ## 4. Ideas para más adelante
 
-- Usuarios y permisos (comercial, montaje, cliente) con Supabase Auth en lugar del código del espacio de trabajo.
 - Opción de pasillo accesible de 1,20 m en los montajes automáticos.
 - Medición con realidad aumentada en Android (WebXR) y oclusión por profundidad en Quest 3.

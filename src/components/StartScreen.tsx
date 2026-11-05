@@ -3,7 +3,8 @@ import type { Project, SpaceMethod } from '../types';
 import { db, downloadBlob, importProject } from '../lib/db';
 import { exportLibrary, importLibrary, useLibrary } from '../lib/library';
 import { projectFromRoom } from '../lib/rooms';
-import { SyncSection } from './SyncPanel';
+import { SyncSection, usePendingOpen } from './SyncPanel';
+import { useAuth } from '../lib/auth';
 import { useSync } from '../lib/sync';
 import { blankSpace, demoProject, demoScanProject } from '../lib/demo';
 import { newProject, useStore } from '../store';
@@ -55,6 +56,40 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
   useEffect(() => {
     refresh();
   }, [lastSync]);
+
+  // Código de gafas con proyecto: se abre solo en cuanto llega de la nube
+  usePendingOpen(async (id) => {
+    const p = await db.getProject(id);
+    if (p) openProject(p);
+  });
+  const viewer = useAuth((s) => s.hotel?.role === 'viewer');
+  const hotelName = useAuth((s) => s.hotel?.name);
+  if (viewer)
+    return (
+      <div className="start">
+        <main className="start-main">
+          <div className="brand dark">
+            <span className="logo">◆</span> MICE Design · {hotelName}
+          </div>
+          <SyncSection />
+          <h2>Proyectos</h2>
+          {projects.length === 0 ? (
+            <p className="muted">Cargando los proyectos del hotel…</p>
+          ) : (
+            <div className="project-list">
+              {projects.map((p) => (
+                <div key={p.id} className="project-card">
+                  <button className="project-open big" onClick={() => openProject(p)}>
+                    <strong>{p.name}</strong>
+                    <span>{p.space.name}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
+    );
 
   const create = () => {
     if (!method) return;
@@ -176,7 +211,7 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
 
         <h2>Proyectos guardados</h2>
         {projects.length === 0 ? (
-          <p className="muted">Todavía no hay proyectos. Se guardan automáticamente en este navegador.</p>
+          <p className="muted">Todavía no hay proyectos. Se guardan automáticamente.</p>
         ) : (
           <div className="project-list">
             {projects.map((p) => (
