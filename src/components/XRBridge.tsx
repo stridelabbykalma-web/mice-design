@@ -142,6 +142,10 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         optionalFeatures: ['hand-tracking', 'bounded-floor'],
       });
       gl.xr.setReferenceSpaceType('local-floor');
+      // Algo más de resolución que la nativa (bordes más nítidos, sobre todo en Quest 3S)
+      // y renderizado foveado para compensar el coste en la periferia de la vista.
+      gl.xr.setFramebufferScaleFactor(1.2);
+      gl.xr.setFoveation(0.6);
       await gl.xr.setSession(session);
       useXR.setState({
         mode: m,

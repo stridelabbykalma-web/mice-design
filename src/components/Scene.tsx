@@ -9,6 +9,7 @@ import { findDef, footprint, itemDims } from '../catalog';
 import { sceneApi } from './sceneApi';
 import { ChairInstances, InstancedChairsContext } from './ChairInstances';
 import { XRBridge } from './XRBridge';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { useXR } from '../lib/xr';
 import { FurnitureMesh, useAssetTexture, useGltf } from './Furniture';
 import { assetUrl } from '../lib/db';
@@ -69,7 +70,9 @@ function Lighting({ project }: { project: Project }) {
     tarde: { amb: 0.4, hemi: 0.45, sun: 1.6, sunColor: '#ffd2a1', bg: '#e9d8c8', ceiling: 0.6 },
     noche: { amb: 0.14, hemi: 0.15, sun: 0.25, sunColor: '#9fb3ff', bg: '#141a26', ceiling: 1.6 },
     gala: { amb: 0.06, hemi: 0.06, sun: 0.1, sunColor: '#7d6bff', bg: '#0b0a14', ceiling: 0.5 },
-  }[lighting];
+    // Realidad mixta: luz neutra de sala interior, desde arriba, para que encaje con la real
+    real: { amb: 0.45, hemi: 0.6, sun: 1.7, sunColor: '#fff3e2', bg: '#000000', ceiling: 0 },
+  }[xrMode === 'ar' ? 'real' : lighting];
   const maxDim = Math.max(space.width, space.depth);
   const lightsOn = lighting === 'noche' || lighting === 'gala';
   const emitters = items
@@ -92,12 +95,14 @@ function Lighting({ project }: { project: Project }) {
       <ambientLight intensity={presets.amb} />
       <hemisphereLight args={['#ffffff', '#8a7f70', presets.hemi]} />
       <directionalLight
-        position={[maxDim * 0.4, maxDim * 0.9, maxDim * 0.6]}
+        // En realidad mixta la luz cae casi en vertical, como la de los techos de un salón
+        position={xrMode === 'ar' ? [maxDim * 0.15, maxDim, maxDim * 0.2] : [maxDim * 0.4, maxDim * 0.9, maxDim * 0.6]}
         intensity={presets.sun}
         color={presets.sunColor}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-bias={-0.0005}
+        shadow-radius={xrMode ? 4 : 1}
         shadow-camera-left={-maxDim}
         shadow-camera-right={maxDim}
         shadow-camera-top={maxDim}
@@ -791,6 +796,36 @@ function CommentPins() {
   );
 }
 
+/**
+ * Realidad mixta: superficie invisible sobre el suelo real que solo recibe las sombras del
+ * montaje, para que las mesas y sillas «apoyen» de verdad en la sala.
+ */
+function ShadowCatcher({ space }: { space: Space }) {
+  const geo = useMemo(() => roomShapeGeometry({ ...space, outline: undefined, width: space.width + 2, depth: space.depth + 2 }, 'suelo'), [space.width, space.depth]);
+  return (
+    <mesh geometry={geo} position={[0, 0.002, 0]} receiveShadow renderOrder={-1}>
+      <shadowMaterial transparent opacity={0.38} depthWrite={false} />
+    </mesh>
+  );
+}
+
+/** Reflejos realistas en metales y cristal (entorno generado, sin descargar imágenes). */
+function XrEnvironment() {
+  const { gl, scene } = useThree();
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = env;
+    scene.environmentIntensity = 0.5;
+    return () => {
+      scene.environment = null;
+      env.dispose();
+      pmrem.dispose();
+    };
+  }, [gl, scene]);
+  return null;
+}
+
 /** Contorno que se está dibujando en la planta. */
 function OutlineDraft() {
   const pts = useStore((s) => s.drawPts);
@@ -1053,7 +1088,7 @@ export default function Scene() {
   return (
     <div ref={wrap} className={`scene-wrap tool-${tool}`}>
       <Canvas
-        shadows
+        shadows="soft"
         dpr={IS_MOBILE ? [1, 1.5] : [1, 2]}
         gl={{ preserveDrawingBuffer: true, antialias: true }}
         // Solo se dibuja cuando algo cambia, salvo en el paseo y con splats (que lo necesitan)
@@ -1067,6 +1102,7 @@ export default function Scene() {
           {!realRoom && <UnderlayMesh space={space} />}
           {!realRoom && <ScannedSpace space={space} view={xrMode ? 'paseo' : view} />}
           {!realRoom && <SplatSpace space={space} />}
+          {realRoom && <ShadowCatcher space={space} />}
           {space.showWalls && !space.outdoor && !realRoom && <Walls space={space} view={xrMode ? 'paseo' : view} />}
           <Items project={project} view={view} />
         </group>
@@ -1077,6 +1113,7 @@ export default function Scene() {
         <Interaction wrap={wrap} />
         <ApiBridge root={root} />
         <XRBridge root={root} />
+        {xrMode && <XrEnvironment />}
       </Canvas>
       {splat === 'loading' && <div className="scene-status">Cargando la captura fotorrealista…</div>}
       {splat === 'error' && <div className="scene-status error">No se pudo abrir el splat. Comprueba que es un .ply de Gaussian splatting, un .splat o un .ksplat.</div>}
