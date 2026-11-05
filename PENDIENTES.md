@@ -3,9 +3,10 @@
 ## 1. Tareas del TFG
 
 ### Puesta en marcha
-- [ ] Activar GitHub Pages: *Settings → Pages → Source: GitHub Actions*, y relanzar el flujo en *Actions → Publicar en GitHub Pages → Re-run jobs*.
+- [x] Activar GitHub Pages (publicado en https://stridelabbykalma-web.github.io/mice-design/).
 - [ ] Instalar MICE Capture en el iPhone 16 Pro desde un Mac con Xcode (`ios/MICECapture/README.md`) y corregir los errores de compilación que aparezcan.
-- [ ] Probar en el iPhone real la captura de paredes con la cámara, la medición con foto y la importación de RoomPlan.
+- [ ] Probar en el iPhone real la captura de paredes con la cámara, la medición con foto, la importación de RoomPlan y la realidad aumentada (USDZ).
+- [ ] Probar el modo gafas en unas Meta Quest 3 (o 3S): realidad mixta con alineación por esquinas y realidad virtual.
 
 ### Nube (Supabase)
 - [ ] Revocar la clave secreta `sb_secret_…` que se compartió en el chat y generar otra (no hace falta en la app).
@@ -48,12 +49,15 @@ Descartadas o aplazadas:
 - PDF real de la orden de montaje (se mantiene la impresión del navegador).
 - Ver el montaje en RA en el iPhone (AR Quick Look), evacuación con búsqueda de caminos, pruebas automáticas y RA en Android: sin decidir.
 
-## 3. Rendimiento (sin decidir)
+## 3. Hecho después de la lista inicial
 
-1. Dibujar sillas y mesas agrupadas (instancing): solo cambia cómo se dibujan, cada pieza sigue siendo editable.
-2. Dibujar solo cuando algo cambia (`frameloop="demand"`).
-3. Optimizar los escaneos al importarlos (menos triángulos y texturas de 2K en móvil).
-4. Sombras más baratas.
-5. Calidad automática según el dispositivo.
-6. Comprobación de seguridad con rejilla espacial y sin recalcular durante el arrastre.
-7. Carga del código por partes.
+- [x] Rendimiento: sillas agrupadas (teatro de 675 sillas: 4.046 → 16 órdenes de dibujo), dibujo bajo demanda, escaneos ligeros.
+- [x] Realidad aumentada en iPhone/iPad (USDZ) y modo gafas WebXR (realidad mixta y virtual).
+- [x] Pruebas automáticas (35) ejecutadas en GitHub Actions antes de publicar.
+- [x] Plano en DXF, comprobación de accesibilidad y registro automático de uso en las pruebas.
+
+## 4. Ideas para más adelante
+
+- Usuarios y permisos (comercial, montaje, cliente) con Supabase Auth en lugar del código del espacio de trabajo.
+- Opción de pasillo accesible de 1,20 m en los montajes automáticos.
+- Medición con realidad aumentada en Android (WebXR) y oclusión por profundidad en Quest 3.

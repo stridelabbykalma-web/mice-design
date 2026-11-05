@@ -57,6 +57,35 @@ El ejemplo *Gemelo digital de una sala* usa un **escaneo simulado** (`src/assets
 - **Plano de mesas con invitados**: importación CSV, asignación automática que mantiene juntos a los grupos, ocupación por mesa, resumen de dietas y alergias para cocina, exportación CSV y plano en la orden de montaje.
 - **Gaussian splatting**: importación de capturas `.ply`, `.splat` o `.ksplat` para un realismo casi fotográfico (la librería se carga solo cuando se usa).
 
+## Ver el evento en la sala real
+
+- **Con el iPhone o el iPad (realidad aumentada)**: *Exportar → Ver en la sala con el iPhone*. Genera un USDZ del montaje a escala real (no se puede escalar por error), anclado al suelo, con el contorno de la sala marcado en azul y un punto de referencia (centro, esquina del frente o puerta). El visor de Apple (AR Quick Look) lo coloca en la sala vacía y se camina entre las mesas. No se exporta lo que ya existe (puertas, ventanas, columnas, cuadros).
+- **Con gafas (WebXR, recomendado Meta Quest 3)**: botón *Gafas* (solo aparece en navegadores compatibles).
+  - *Realidad mixta*: se ve la sala real y encima el montaje. Se alinea marcando con el mando o pellizcando con la mano las dos esquinas del frente; si la distancia real no coincide con la de la app, avisa de la diferencia en centímetros.
+  - *Realidad virtual*: el gemelo digital completo; se camina o se teletransporta apuntando al suelo.
+  - Probado con el emulador oficial IWER (Quest 3): la alineación recupera exactamente una sala girada 30° y desplazada. Falta la prueba con gafas físicas.
+
+## Rendimiento
+
+Medido con montajes grandes (órdenes de dibujo por fotograma y tiempo de dibujo):
+
+| Montaje | Antes | Ahora |
+| --- | --- | --- |
+| Teatro, 675 sillas | 4.046 órdenes · 86 ms | 16 órdenes · 1 ms |
+| Banquete, 42 mesas | 2.652 órdenes · 45 ms | 134 órdenes · 3 ms |
+
+Claves: sillas genéricas dibujadas en grupo (instancing, siguen siendo seleccionables), dibujo solo cuando algo cambia, comprobaciones de seguridad con rejilla espacial y caché, texturas de escaneos limitadas (2048 px en móvil), menos resolución en móviles y módulos cargados bajo demanda.
+
+## Accesibilidad, plano técnico y registro de uso
+
+- **Accesibilidad** (orientativo, CTE DB-SUA 9): comprueba que desde la entrada hay un paso libre de 1,20 m hasta cada mesa (búsqueda de caminos en una rejilla de 10 cm) y un espacio de giro de 1,50 m delante de la puerta; marca las mesas afectadas. En el banquete de ejemplo, 9 de 15 mesas no son accesibles con pasillos de servicio de 90 cm.
+- **Plano para AutoCAD** (*Exportar → Plano para AutoCAD (.dxf)*): DXF R12 en metros con capas de sala, arquitectura, mesas, sillas, mobiliario y textos.
+- **Registro automático de uso** (*Evaluación con usuarios → Tareas*): durante una sesión de prueba se anotan de forma anónima y con su hora las acciones del participante; resumen por participante (duración, acciones, deshacer, montajes, avisos, exportaciones) y CSV detallado para el capítulo 7.
+
+## Pruebas automáticas
+
+`npm test` ejecuta 35 pruebas (Vitest) de montajes, aforo y evacuación, accesibilidad, geometría de salas con forma, medición con foto, invitados, mesas decoradas, RoomPlan, alineación de las gafas, DXF y registro de uso. GitHub Actions las ejecuta antes de cada publicación.
+
 ## Nube: sincronizar dispositivos y compartir con el cliente (Supabase)
 
 - **Sincronizar ordenador y móvil**: en la pantalla de inicio, *Activar la sincronización* crea un espacio de trabajo del hotel y muestra un QR; al escanearlo con el móvil y pulsar *Vincular*, ambos dispositivos comparten proyectos, salas, mesas decoradas y muebles escaneados con todos sus archivos. Se sincroniza al guardar, cada 15 s y al volver a la app; si el mismo proyecto cambia en los dos, gana la versión más reciente y, si hay cambios sin subir, la app pregunta. Caso típico: preparar el proyecto en el ordenador, hacer las fotos de las paredes con el móvil y verlas aparecer en el ordenador.
