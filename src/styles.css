@@ -2006,3 +2006,19 @@ table.budget {
   color: var(--muted);
   line-height: 1.6;
 }
+.usage-dot {
+  border: none;
+  background: rgba(229, 72, 77, 0.12);
+  color: var(--err);
+  font-weight: 600;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 99px;
+  cursor: pointer;
+}
+.usage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}

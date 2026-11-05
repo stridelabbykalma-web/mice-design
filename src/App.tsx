@@ -13,6 +13,7 @@ import { ClientComments, ShareModal } from './components/Share';
 import { SyncIndicator } from './components/SyncPanel';
 import { ArModal } from './components/ArModal';
 import { projectToDxf } from './lib/dxf';
+import { activeSession, logEvent, stopSession } from './lib/usageLog';
 import { XrButton } from './components/XrButton';
 import { loadShare, sharedIdFromHash } from './lib/cloud';
 import { normalizeOutline, roomArea } from './lib/outline';
@@ -99,6 +100,29 @@ function useKeyboard() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+}
+
+/** Aviso discreto mientras se registra una sesión de prueba con un participante. */
+function UsageIndicator() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 3000);
+    return () => clearInterval(t);
+  }, []);
+  const s = activeSession();
+  if (!s) return null;
+  return (
+    <button
+      className="usage-dot"
+      title="Se están registrando las acciones para la evaluación. Pulsa para terminar la sesión."
+      onClick={() => {
+        stopSession();
+        tick((n) => n + 1);
+      }}
+    >
+      ● {s.participant}
+    </button>
+  );
 }
 
 const PANELS = [
@@ -190,10 +214,18 @@ function Editor() {
         </select>
         <div className="spacer" />
         <SyncIndicator />
+        <UsageIndicator />
         <XrButton />
         <details className="menu">
           <summary className="btn">Exportar ▾</summary>
-          <div className="menu-list" onClick={(e) => (e.currentTarget.closest('details') as HTMLDetailsElement).removeAttribute('open')}>
+          <div
+            className="menu-list"
+            onClick={(e) => {
+              (e.currentTarget.closest('details') as HTMLDetailsElement).removeAttribute('open');
+              const label = (e.target as HTMLElement).closest('button')?.textContent;
+              if (label) logEvent('exportar', label.trim());
+            }}
+          >
             <button
               onClick={async () => {
                 const url = await capture(st.view);

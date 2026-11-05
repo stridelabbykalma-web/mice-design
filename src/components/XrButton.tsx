@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useXR } from '../lib/xr';
 import { sceneApi } from './sceneApi';
 import { useStore } from '../store';
+import { logEvent } from '../lib/usageLog';
 
 /** Botón para entrar con gafas (solo aparece si el navegador las admite, p. ej. Meta Quest). */
 export function XrButton() {
@@ -15,6 +16,7 @@ export function XrButton() {
     setErr('');
     try {
       await sceneApi.enterXR?.(m);
+      logEvent('gafas', m === 'ar' ? 'realidad mixta' : 'realidad virtual');
     } catch (x) {
       setErr((x as Error).message);
     }

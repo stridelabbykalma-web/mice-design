@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { AR_ANCHORS, ArAnchor, exportArUsdz, isIOS, openQuickLook } from '../lib/arExport';
 import { downloadBlob } from '../lib/db';
 import { Field, Toggle } from './ui';
+import { logEvent } from '../lib/usageLog';
 
 /** Ver el montaje a tamaño real en la sala con el iPhone o el iPad (AR Quick Look). */
 export function ArModal({ onClose }: { onClose: () => void }) {
@@ -19,6 +20,7 @@ export function ArModal({ onClose }: { onClose: () => void }) {
     setMsg('');
     try {
       const blob = await exportArUsdz(project, { anchor, outline });
+      logEvent('realidad aumentada', ios ? 'abrir en el iPhone' : 'descargar .usdz');
       if (ios) openQuickLook(blob);
       else {
         downloadBlob(blob, `${(project.event.name || project.name).replace(/[^\p{L}\p{N}]+/gu, '-')}.usdz`);

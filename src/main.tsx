@@ -26,3 +26,7 @@ detectXR();
   const { mode, step, message } = useXR.getState();
   return { mode, step, message };
 };
+
+// Registro de uso para las pruebas con usuarios (solo con una sesión de prueba activa)
+import { attachUsageLog } from './lib/usageLog';
+attachUsageLog(useStore);

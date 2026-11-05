@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { downloadBlob } from '../lib/db';
 import { ConfirmButton } from './ui';
+import { activeSession, deleteSession, listSessions, sessionsCsv, startSession, stopSession, summarize } from '../lib/usageLog';
 
 // Módulo de evaluación con usuarios (cap. 7 del TFG):
 //  · Tareas cronometradas (eficacia y eficiencia, ISO 9241-11).
@@ -262,6 +263,8 @@ export default function Survey({ onBack }: { onBack: () => void }) {
           </div>
         )}
 
+        {tab === 'tareas' && <UsageControl participant={cur.participant} />}
+
         {tab === 'tareas' && (
           <div className="card">
             <p className="hint">
@@ -412,6 +415,7 @@ export default function Survey({ onBack }: { onBack: () => void }) {
                 ))}
               </tbody>
             </table>
+            <UsageResults />
             <h3>Respuestas</h3>
             <table className="task-table">
               <thead>
@@ -474,5 +478,114 @@ function Likert({ n, text, max, value, onChange }: { n: number | string; text: s
         ))}
       </div>
     </div>
+  );
+}
+
+/** Iniciar y detener el registro automático de acciones del participante. */
+function UsageControl({ participant }: { participant: string }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 2000);
+    return () => clearInterval(t);
+  }, []);
+  const active = activeSession();
+  return (
+    <div className="card usage-card">
+      <strong>Registro automático de uso</strong>
+      {active ? (
+        <>
+          <p className="hint">
+            Registrando a <strong>{active.participant}</strong> desde las {new Date(active.start).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} ·{' '}
+            {active.events.length} acciones. Pulsa «Volver» para que el participante use la app; al terminar, vuelve aquí y detén el registro.
+          </p>
+          <button
+            className="btn danger"
+            onClick={() => {
+              stopSession();
+              tick((n) => n + 1);
+            }}
+          >
+            Detener el registro
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="hint">
+            Anota de forma anónima y con su hora lo que hace el participante en la app (vistas, herramientas, montajes, deshacer, avisos de seguridad, exportaciones, realidad aumentada y
+            gafas). Escribe arriba su código antes de empezar.
+          </p>
+          <button
+            className="btn primary"
+            disabled={!participant.trim()}
+            onClick={() => {
+              startSession(participant);
+              tick((n) => n + 1);
+            }}
+          >
+            Iniciar el registro para {participant.trim() || '…'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
+
+/** Resumen del registro automático por participante, con exportación del detalle. */
+function UsageResults() {
+  const [list, setList] = useState(listSessions);
+  if (!list.length) return null;
+  return (
+    <>
+      <h3>Registro automático de uso</h3>
+      <table className="task-table">
+        <thead>
+          <tr>
+            <th>Participante</th>
+            <th>Duración</th>
+            <th>Acciones</th>
+            <th>Deshacer</th>
+            <th>Montajes</th>
+            <th>Avisos</th>
+            <th>Exportaciones</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((s) => {
+            const r = summarize(s);
+            return (
+              <tr key={s.id}>
+                <td>
+                  {s.participant}
+                  {!s.end && <span className="badge">en curso</span>}
+                </td>
+                <td>{mmss(r.duration)}</td>
+                <td>{r.actions}</td>
+                <td>{r.undo}</td>
+                <td>{r.layouts}</td>
+                <td>{r.warnings}</td>
+                <td>{r.exports}</td>
+                <td>
+                  <ConfirmButton
+                    title="Eliminar este registro"
+                    onConfirm={() => {
+                      deleteSession(s.id);
+                      setList(listSessions());
+                    }}
+                  >
+                    ✕
+                  </ConfirmButton>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <button className="btn" onClick={() => downloadBlob(new Blob([sessionsCsv(list)], { type: 'text/csv;charset=utf-8' }), 'mice-design_registro-uso.csv')}>
+        Exportar registro detallado (CSV)
+      </button>
+    </>
   );
 }
