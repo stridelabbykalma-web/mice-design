@@ -41,6 +41,18 @@ export function VariantMenu({ onCompare, client = false }: { onCompare?: () => v
 
   if (client) {
     if (vs.length < 2) return null;
+    // Con programa: las fases en orden y con su hora
+    const phases = project.program?.phases.filter((p) => p.variantId && vs.some((v) => v.id === p.variantId));
+    if (phases?.length)
+      return (
+        <div className="seg phases-seg" role="group" aria-label="Fases del evento">
+          {phases.map((p) => (
+            <button key={p.id} className={p.variantId === active ? 'active' : ''} onClick={() => st.switchVariant(p.variantId!)} title={p.name}>
+              <small>{p.start}</small> {p.name}
+            </button>
+          ))}
+        </div>
+      );
     return (
       <div className="seg" role="group" aria-label="Propuestas">
         {vs.map((v) => (

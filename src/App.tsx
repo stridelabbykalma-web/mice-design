@@ -9,6 +9,7 @@ const Survey = lazy(() => import('./components/Survey'));
 import { RectifyHost } from './components/Rectify';
 import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { CompareModal, VariantMenu } from './components/Variants';
+import { ProgramPanel } from './components/ProgramPanel';
 import { ClientComments, ShareModal } from './components/Share';
 import { AuthScreen, LiveBadge, SyncIndicator } from './components/SyncPanel';
 import { needsLogin, useAuth } from './lib/auth';
@@ -128,6 +129,7 @@ function UsageIndicator() {
 
 const PANELS = [
   { id: 'espacio', label: 'Espacio', icon: '▢' },
+  { id: 'programa', label: 'Programa', icon: '⏱' },
   { id: 'catalogo', label: 'Catálogo', icon: '◈' },
   { id: 'montaje', label: 'Montajes', icon: '▦' },
   { id: 'invitados', label: 'Invitados', icon: '👥' },
@@ -286,6 +288,7 @@ function Editor() {
             </button>
           </div>
           {st.panel === 'espacio' && <SpacePanel />}
+          {st.panel === 'programa' && <ProgramPanel />}
           {st.panel === 'catalogo' && <CatalogPanel />}
           {st.panel === 'montaje' && <LayoutPanel />}
           {st.panel === 'invitados' && <GuestsPanel />}

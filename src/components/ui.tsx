@@ -118,7 +118,20 @@ export const eur = (v: number) => v.toLocaleString('es-ES', { style: 'currency',
 export const m = (v: number, d = 2) => v.toFixed(d).replace('.', ',');
 
 /** Botón de doble confirmación integrado en la página (sin diálogos del navegador). */
-export function ConfirmButton({ onConfirm, children, title, className = 'icon-btn' }: { onConfirm: () => void; children: ReactNode; title: string; className?: string }) {
+export function ConfirmButton({
+  onConfirm,
+  children,
+  title,
+  className = 'icon-btn',
+  armedLabel = '¿Eliminar?',
+}: {
+  onConfirm: () => void;
+  children: ReactNode;
+  title: string;
+  className?: string;
+  /** Texto del segundo clic (confirmación). */
+  armedLabel?: string;
+}) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (!armed) return;
@@ -136,7 +149,7 @@ export function ConfirmButton({ onConfirm, children, title, className = 'icon-bt
         } else setArmed(true);
       }}
     >
-      {armed ? '¿Eliminar?' : children}
+      {armed ? armedLabel : children}
     </button>
   );
 }

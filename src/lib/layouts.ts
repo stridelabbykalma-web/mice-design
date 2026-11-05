@@ -81,15 +81,18 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
   let front = -D / 2 + o.margin; // borde delantero útil (z)
 
   // Escenario / pantalla en el frente (pared norte, z negativa)
-  if (o.type !== 'banquete' && o.type !== 'coctel' && o.type !== 'imperial') {
+  // Banquete: solo si se pide escenario (cenas de gala con premios)
+  if (o.type !== 'coctel' && o.type !== 'imperial' && (o.type !== 'banquete' || o.stage)) {
     if (o.stage) {
-      const sw = Math.min(8, Math.max(3, W * 0.4));
-      const sd = D > 14 ? 3 : 2.4;
+      // En banquete el escenario es más pequeño (discursos y premios) para no perder mesas
+      const ban = o.type === 'banquete';
+      const sw = ban ? Math.min(6, Math.max(3, W * 0.3)) : Math.min(8, Math.max(3, W * 0.4));
+      const sd = ban ? 2.4 : D > 14 ? 3 : 2.4;
       const st: NewItem = { type: 'escenario', x: 0, z: -D / 2 + 0.45 + sd / 2, rot: 0, w: sw, d: sd, h: 0.4 };
       out.push(st);
       obstacles.push({ x: st.x, z: st.z, w: sw, d: sd, rot: 0 });
       out.push({ type: 'atril', x: sw / 2 - 0.8, z: st.z + sd / 2 - 0.5, rot: 0 });
-      front = -D / 2 + 0.45 + sd + 1.8;
+      front = -D / 2 + 0.45 + sd + (ban ? 1 : 1.8);
       if (o.screen) out.push({ type: 'pantalla', x: 0, z: -D / 2 + 0.2, rot: 0, w: Math.min(6, sw * 0.7), h: Math.min(space.height - 0.3, 3) });
     } else if (o.screen) {
       out.push({ type: 'pantalla', x: 0, z: -D / 2 + 0.4, rot: 0, w: Math.min(4, W * 0.4), h: Math.min(space.height - 0.3, 2.6) });

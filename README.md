@@ -47,6 +47,10 @@ Cada herramienta aporta lo que mejor hace: **las medidas salen del plano, el asp
 
 Para splats en las gafas conviene que el archivo no pase de ~1 millón de puntos (Scaniverse permite elegir la calidad al exportar).
 
+## Programa del evento por fases
+
+Panel *Programa*: se elige el tipo de evento (reunión, jornada, congreso, convención, presentación de producto, rueda de prensa, gala, workshop B2B, incentivo o boda) y la app crea sus fases típicas con hora y duración (ver `docs/estructura-eventos-mice.md`). Cada fase en la sala es un montaje propio (por ejemplo: inauguración en teatro con mesa de presidencia → plenaria sin presidencia → cena de gala en banquete con escenario) y las fases fuera de la sala (cóctel, pausa café) indican dónde esperan los asistentes. Entre fases calcula el cambio de montaje (qué se retira y qué se monta, minutos con el personal indicado y tiempo disponible) y avisa si no da tiempo o si en alguna fase faltan asientos. En la vista del cliente y en las gafas se pasa de una fase a otra. Los tiempos por pieza son una estimación orientativa (`unitMinutes` en `src/lib/program.ts`).
+
 ## Gemelo digital de la sala
 
 El objetivo es que el espacio sea un **doble exacto de la sala real**, decoración incluida, y que el evento se monte encima.

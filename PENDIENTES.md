@@ -60,6 +60,8 @@ Descartadas o aplazadas:
 - [x] Pruebas automáticas (35) ejecutadas en GitHub Actions antes de publicar.
 - [x] Plano en DXF, comprobación de accesibilidad y registro automático de uso en las pruebas.
 - [x] Realidad mixta más realista: sombras sobre el suelo real, luz neutra, reflejos y más nitidez.
+- [x] Programa del evento por fases según el tipo de evento, con cambios de montaje (personal y tiempo) y avisos.
+- [ ] Ajustar con el hotel los minutos de montaje por pieza y su personal habitual.
 - [x] Cuentas de hotel con inicio de sesión y roles; gafas y móviles emparejados con código; diseño en el ordenador visto en directo en las gafas.
 
 ## 4. Ideas para más adelante

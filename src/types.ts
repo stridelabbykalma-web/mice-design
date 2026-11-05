@@ -213,6 +213,8 @@ export interface Project {
   guests?: Guest[];
   /** Propuestas alternativas; la activa vive en items/lighting. */
   variants?: Variant[];
+  /** Programa por fases (cada fase en la sala es una propuesta). */
+  program?: import('./lib/program').Program;
   activeVariant?: string;
 }
 

@@ -405,7 +405,7 @@ export function SyncSection() {
                 ))}
               </select>
             )}
-            <ConfirmButton className="btn small" title="Cerrar sesión en este dispositivo (los proyectos siguen en la nube)" onConfirm={() => signOut()}>
+            <ConfirmButton className="btn small" title="Cerrar sesión en este dispositivo (los proyectos siguen en la nube)" onConfirm={() => signOut()} armedLabel="¿Cerrar sesión?">
               Cerrar sesión
             </ConfirmButton>
           </div>
@@ -460,6 +460,7 @@ function Team() {
             {(admin || mb.is_me) && (
               <ConfirmButton
                 title={mb.is_me ? 'Salir de este hotel' : 'Quitar del hotel'}
+                armedLabel={mb.is_me ? '¿Salir?' : '¿Quitar?'}
                 onConfirm={() =>
                   run(async () => {
                     await removeMember(mb.user_id);
