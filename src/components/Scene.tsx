@@ -8,6 +8,8 @@ import type { CatalogDef, Item, Project, Space, WallSide } from '../types';
 import { findDef, footprint, itemDims } from '../catalog';
 import { sceneApi } from './sceneApi';
 import { ChairInstances, InstancedChairsContext } from './ChairInstances';
+import { XRBridge } from './XRBridge';
+import { useXR } from '../lib/xr';
 import { FurnitureMesh, useAssetTexture, useGltf } from './Furniture';
 import { assetUrl } from '../lib/db';
 import { DEG, snapValue, corners } from '../lib/geometry';
@@ -61,6 +63,7 @@ function Polyline({ points, color, overlay = false }: { points: THREE.Vector3[];
 // ---------- Iluminación ----------
 function Lighting({ project }: { project: Project }) {
   const { space, lighting, items, customCatalog } = project;
+  const xrMode = useXR((s) => s.mode);
   const presets = {
     dia: { amb: 0.55, hemi: 0.7, sun: 2.4, sunColor: '#fff6e5', bg: space.outdoor ? '#a9cbe8' : '#dfe6ee', ceiling: 0.0 },
     tarde: { amb: 0.4, hemi: 0.45, sun: 1.6, sunColor: '#ffd2a1', bg: '#e9d8c8', ceiling: 0.6 },
@@ -85,7 +88,7 @@ function Lighting({ project }: { project: Project }) {
 
   return (
     <>
-      <color attach="background" args={[presets.bg]} />
+      {xrMode !== 'ar' && <color attach="background" args={[presets.bg]} />}
       <ambientLight intensity={presets.amb} />
       <hemisphereLight args={['#ffffff', '#8a7f70', presets.hemi]} />
       <directionalLight
@@ -642,6 +645,7 @@ function Items({ project, view }: { project: Project; view: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dragging ? null : project, dragging]);
   const lightsOn = project.lighting === 'noche' || project.lighting === 'gala';
+  const xrAR = useXR((st) => st.mode === 'ar');
   // Lo que se coloca encima de un escenario se eleva a su altura.
   const stages = project.items.filter((i) => i.type === 'escenario');
   const tables = project.items.filter((i) => isTableDef(findDef(i.type, project.customCatalog)));
@@ -681,6 +685,8 @@ function Items({ project, view }: { project: Project; view: string }) {
       <InstancedChairsContext.Provider value={true}>
       {project.items.map((it) => {
         const def = findDef(it.type, project.customCatalog);
+        // En realidad mixta las puertas, columnas, ventanas y cuadros son los reales
+        if (xrAR && (def?.category === 'arquitectura' || it.type === 'cuadro' || it.type === 'espejo')) return null;
         return (
           <ItemNode
             elev={elevation(it)}
@@ -1035,6 +1041,9 @@ export default function Scene() {
   const view = useStore((s) => s.view);
   const tool = useStore((s) => s.tool);
   const walkLocked = useInteraction((s) => s.walkLocked);
+  const xrMode = useXR((s) => s.mode);
+  // En realidad mixta se ve la sala real: solo se dibuja el montaje
+  const realRoom = xrMode === 'ar';
   const splat = useInteraction((s) => s.splat);
   const clientMode = useStore((s) => s.clientMode);
   const clientLang = clientMode ? project.event.language : 'es';
@@ -1048,17 +1057,17 @@ export default function Scene() {
         dpr={IS_MOBILE ? [1, 1.5] : [1, 2]}
         gl={{ preserveDrawingBuffer: true, antialias: true }}
         // Solo se dibuja cuando algo cambia, salvo en el paseo y con splats (que lo necesitan)
-        frameloop={view === 'paseo' || space.splat ? 'always' : 'demand'}
+        frameloop={view === 'paseo' || space.splat || xrMode ? 'always' : 'demand'}
         key={view}
       >
         <Cameras space={space} view={view} wrap={wrap} />
         <Lighting project={project} />
         <group ref={root} name="mice-design-escena">
-          <Floor space={space} view={view} />
-          <UnderlayMesh space={space} />
-          <ScannedSpace space={space} view={view} />
-          <SplatSpace space={space} />
-          {space.showWalls && !space.outdoor && <Walls space={space} view={view} />}
+          {!realRoom && <Floor space={space} view={view} />}
+          {!realRoom && <UnderlayMesh space={space} />}
+          {!realRoom && <ScannedSpace space={space} view={xrMode ? 'paseo' : view} />}
+          {!realRoom && <SplatSpace space={space} />}
+          {space.showWalls && !space.outdoor && !realRoom && <Walls space={space} view={xrMode ? 'paseo' : view} />}
           <Items project={project} view={view} />
         </group>
         <Ghost project={project} />
@@ -1067,6 +1076,7 @@ export default function Scene() {
         <OutlineDraft />
         <Interaction wrap={wrap} />
         <ApiBridge root={root} />
+        <XRBridge root={root} />
       </Canvas>
       {splat === 'loading' && <div className="scene-status">Cargando la captura fotorrealista…</div>}
       {splat === 'error' && <div className="scene-status error">No se pudo abrir el splat. Comprueba que es un .ply de Gaussian splatting, un .splat o un .ksplat.</div>}

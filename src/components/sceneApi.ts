@@ -6,6 +6,8 @@ export const sceneApi: {
   scene?: THREE.Scene;
   exportRoot?: THREE.Object3D;
   modelObject?: THREE.Object3D | null;
+  /** Abre la sesión de gafas (realidad mixta o virtual). */
+  enterXR?: (mode: 'ar' | 'vr') => Promise<void>;
   /** Cámara activa (para capturas y mediciones de rendimiento). */
   camera?: () => THREE.Camera;
   /** Estado de carga del Gaussian splatting. */

@@ -18,3 +18,11 @@ import { sceneApi } from './components/sceneApi';
 // Sincronización entre dispositivos (si este dispositivo está vinculado y no es un enlace de cliente)
 import { startAutoSync } from './lib/sync';
 if (!location.hash.startsWith('#p-')) startAutoSync();
+
+// Gafas de realidad mixta / virtual (WebXR): comprobar si este navegador las admite
+import { detectXR, useXR } from './lib/xr';
+detectXR();
+(window as unknown as { __xrState: () => unknown }).__xrState = () => {
+  const { mode, step, message } = useXR.getState();
+  return { mode, step, message };
+};

@@ -12,6 +12,7 @@ import { CompareModal, VariantMenu } from './components/Variants';
 import { ClientComments, ShareModal } from './components/Share';
 import { SyncIndicator } from './components/SyncPanel';
 import { ArModal } from './components/ArModal';
+import { XrButton } from './components/XrButton';
 import { loadShare, sharedIdFromHash } from './lib/cloud';
 import { normalizeOutline, roomArea } from './lib/outline';
 import { locale, t } from './lib/i18n';
@@ -188,6 +189,7 @@ function Editor() {
         </select>
         <div className="spacer" />
         <SyncIndicator />
+        <XrButton />
         <details className="menu">
           <summary className="btn">Exportar ▾</summary>
           <div className="menu-list" onClick={(e) => (e.currentTarget.closest('details') as HTMLDetailsElement).removeAttribute('open')}>
@@ -391,6 +393,7 @@ function ClientView() {
           ))}
         </div>
         <div className="spacer" />
+        <XrButton />
         {!st.readOnly && (
           <button className="btn" onClick={() => st.setClientMode(false)}>
             {T('Salir de la vista cliente')}
