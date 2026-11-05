@@ -192,7 +192,7 @@ export async function signIn(email: string, password: string) {
 
 /** Crea la cuenta. Devuelve false si hay que confirmar el correo antes de entrar. */
 export async function signUp(email: string, password: string): Promise<boolean> {
-  const d = await authCall('signup', { email: email.trim(), password });
+  const d = await authCall(`signup?redirect_to=${encodeURIComponent(appUrl())}`, { email: email.trim(), password });
   const s = toSession(d);
   if (!s) return false;
   saveSession(s);
@@ -200,7 +200,7 @@ export async function signUp(email: string, password: string): Promise<boolean> 
 }
 
 export async function recoverPassword(email: string) {
-  await authCall('recover', { email: email.trim() });
+  await authCall(`recover?redirect_to=${encodeURIComponent(appUrl())}`, { email: email.trim() });
 }
 
 /** Gafas o móvil: entra con un código de un solo uso, sin cuenta propia. */
@@ -296,6 +296,12 @@ export function codeLink(code: string) {
 export function codeFromHash(): string | null {
   const m = location.hash.match(/^#c-([A-Z0-9]{8})$/i);
   return m ? m[1].toUpperCase() : null;
+}
+
+/** Dirección de la app a la que vuelven los enlaces de los correos (confirmar cuenta, contraseña). */
+function appUrl() {
+  const real = /^https?:/.test(location.protocol) && !location.hostname.endsWith('claude.ai');
+  return real ? location.origin + location.pathname : 'https://stridelabbykalma-web.github.io/mice-design/';
 }
 
 function reloadApp() {

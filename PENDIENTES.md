@@ -10,8 +10,10 @@
 
 ### Nube (Supabase)
 - [ ] Revocar la clave secreta `sb_secret_…` que se compartió en el chat y generar otra (no hace falta en la app).
-- [ ] Ejecutar `supabase/schema.sql` en el SQL Editor y pasar la *Project URL* para ponerla en `src/lib/cloud.ts`.
+- [x] Ejecutar `supabase/schema.sql` y poner la *Project URL* en `src/lib/cloud.ts`.
 - [ ] En Supabase: *Authentication → Sign In / Providers*: activar «Allow anonymous sign-ins» (gafas) y decidir si se pide confirmar el correo.
+- [ ] En Supabase: *Authentication → URL Configuration*: Site URL = `https://stridelabbykalma-web.github.io/mice-design/` (ahora es localhost:3000).
+- [ ] Borrar el token personal `sbp_…` usado para la instalación.
 - [ ] Crear la cuenta del hotel, emparejar las Quest con «🥽 Ver en gafas» y probar el directo en la sala.
 - [ ] Probar con el iPhone real: emparejar por QR y capturar fotos desde el móvil.
 

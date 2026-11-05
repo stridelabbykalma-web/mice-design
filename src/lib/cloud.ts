@@ -6,7 +6,7 @@ import type { Project } from '../types';
 import { getAsset, projectAssetIds, registerAsset } from './db';
 
 /** Configuración del proyecto de Supabase (la URL y la clave pública no son secretas). */
-const DEFAULT_URL = 'https://REEMPLAZAR.supabase.co';
+const DEFAULT_URL = 'https://czpzvcrwejkgtwsvgxpr.supabase.co';
 
 /** Para pruebas: localStorage «mice-cloud-url» apunta la app a otro servidor. */
 function cloudUrl() {
