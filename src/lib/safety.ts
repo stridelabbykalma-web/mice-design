@@ -181,18 +181,31 @@ export function analyze(project: Project, lang: 'es' | 'en' = 'es'): { checks: C
   // 5. Solapes entre muebles
   const solid = items.filter((i) => !NON_BLOCKING.has(i.type) && !findDef(i.type, customCatalog)?.onTable);
   const overlapping = new Set<string>();
-  for (let a = 0; a < solid.length; a++) {
-    const A = solid[a];
-    const oa = obbOf(A, findDef(A.type, customCatalog));
-    for (let b = a + 1; b < solid.length; b++) {
-      const B = solid[b];
-      if ((A.type === 'escenario' && ON_STAGE.has(B.type)) || (B.type === 'escenario' && ON_STAGE.has(A.type))) continue;
-      if (obbOverlap(oa, obbOf(B, findDef(B.type, customCatalog)), 0.05)) {
-        overlapping.add(A.id);
-        overlapping.add(B.id);
-      }
-    }
-  }
+  // Rejilla espacial: solo se comparan elementos de celdas vecinas (antes, todos con todos).
+  const boxes = solid.map((it) => obbOf(it, findDef(it.type, customCatalog)));
+  const radius = boxes.map((b) => Math.hypot(b.w, b.d) / 2);
+  const cell = Math.max(2, ...radius.map((r) => r * 2));
+  const grid = new Map<string, number[]>();
+  boxes.forEach((b, i) => {
+    const k = `${Math.floor(b.x / cell)},${Math.floor(b.z / cell)}`;
+    (grid.get(k) ?? grid.set(k, []).get(k)!).push(i);
+  });
+  boxes.forEach((oa, a) => {
+    const cx = Math.floor(oa.x / cell);
+    const cz = Math.floor(oa.z / cell);
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dz = -1; dz <= 1; dz++)
+        for (const b of grid.get(`${cx + dx},${cz + dz}`) ?? []) {
+          if (b <= a) continue;
+          const A = solid[a];
+          const B = solid[b];
+          if ((A.type === 'escenario' && ON_STAGE.has(B.type)) || (B.type === 'escenario' && ON_STAGE.has(A.type))) continue;
+          if (obbOverlap(oa, boxes[b], 0.05)) {
+            overlapping.add(A.id);
+            overlapping.add(B.id);
+          }
+        }
+  });
   checks.push(
     overlapping.size
       ? {

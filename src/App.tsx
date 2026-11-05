@@ -1,12 +1,11 @@
-import { useEffect, useState } from 'react';
-import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useStore } from './store';
 import Scene, { sceneApi } from './components/Scene';
 import StartScreen from './components/StartScreen';
 import SpacePanel, { VideoReference } from './components/SpacePanel';
 import { CatalogPanel, EventPanel, LayoutPanel, PropertiesPanel, SafetyPanel } from './components/Panels';
 import OrderSheet from './components/OrderSheet';
-import Survey from './components/Survey';
+const Survey = lazy(() => import('./components/Survey'));
 import { RectifyHost } from './components/Rectify';
 import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { CompareModal, VariantMenu } from './components/Variants';
@@ -130,9 +129,11 @@ function Editor() {
     setOrder({ plan, view });
   };
 
-  const exportGlb = () => {
+  const exportGlb = async () => {
     const root = sceneApi.exportRoot;
     if (!root) return;
+    // El exportador se carga solo cuando se usa
+    const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
     new GLTFExporter().parse(
       root,
       (out) => downloadBlob(new Blob([out as ArrayBuffer], { type: 'model/gltf-binary' }), `${slug(project.name)}.glb`),
@@ -455,6 +456,11 @@ export default function App() {
   const [survey, setSurvey] = useState(false);
   const [sharedId] = useState(sharedIdFromHash);
   if (sharedId && !project) return <SharedLoader id={sharedId} />;
-  if (survey) return <Survey onBack={() => setSurvey(false)} />;
+  if (survey)
+    return (
+      <Suspense fallback={<div className="shared-loading">Cargando…</div>}>
+        <Survey onBack={() => setSurvey(false)} />
+      </Suspense>
+    );
   return project ? <Editor /> : <StartScreen onSurvey={() => setSurvey(true)} />;
 }

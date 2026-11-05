@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
+import { InstancedChairsContext, chairIsInstanced } from './ChairInstances';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
@@ -37,6 +38,28 @@ export function textTexture(text: string, bg: string, fg: string, w = 512, h = 2
 
 // ---------- Modelos GLB (fotogrametría / escaneo 3D) ----------
 const gltfCache = new Map<string, Promise<THREE.Object3D>>();
+/** Tamaño máximo de textura: los escaneos suelen traer 8K, que agotan la memoria del móvil. */
+const MAX_TEX = /iPhone|iPad|Android/i.test(navigator.userAgent) ? 2048 : 4096;
+const resized = new WeakSet<THREE.Texture>();
+
+/** Reduce las texturas que superan el máximo útil (mantiene la proporción). */
+function limitTextures(mat: THREE.Material) {
+  const m = mat as THREE.MeshStandardMaterial;
+  for (const key of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'] as const) {
+    const tex = m[key];
+    const img = tex?.image as (CanvasImageSource & { width: number; height: number }) | undefined;
+    if (!tex || !img || resized.has(tex) || !img.width || Math.max(img.width, img.height) <= MAX_TEX) continue;
+    const k = MAX_TEX / Math.max(img.width, img.height);
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * k);
+    c.height = Math.round(img.height * k);
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    tex.image = c;
+    tex.needsUpdate = true;
+    resized.add(tex);
+  }
+}
+
 let gltfLoader: GLTFLoader | null = null;
 /** Cargador glTF compatible con las exportaciones habituales de apps de escaneo (Draco, Meshopt, KTX2). */
 function getGltfLoader() {
@@ -79,6 +102,7 @@ export function loadGltf(assetId: string): Promise<THREE.Object3D> {
                 if (m.isMesh) {
                   m.castShadow = true;
                   m.receiveShadow = true;
+                  (Array.isArray(m.material) ? m.material : [m.material]).forEach((mat) => limitTextures(mat));
                 }
               });
               resolve(g.scene);
@@ -168,6 +192,9 @@ function Chair({ color = '#c9a45c', conference = false }: { color?: string; conf
 
 /** Silla genérica o escaneada, según el tipo elegido. */
 function ChairOf({ type, custom, color }: { type?: string; custom: CatalogDef[]; color?: string }) {
+  // En la escena principal las sillas genéricas se dibujan agrupadas (ChairInstances)
+  const instanced = useContext(InstancedChairsContext);
+  if (instanced && chairIsInstanced(type, custom)) return null;
   const def = type ? findDef(type, custom) : undefined;
   if (def?.modelAssetId) return <ScannedModel def={def} w={def.w} d={def.d} h={def.h} />;
   return <Chair color={color ?? def?.color} conference={type === 'silla-conferencia'} />;
@@ -288,6 +315,7 @@ export function FurnitureMesh({ item, def, custom, wallHeight, lightsOn, twin = 
   const { w, d, h } = itemDims(item, def);
   const color = item.color ?? def?.color ?? '#cccccc';
   const chairs = item.chairs ?? def?.chairs ?? 0;
+  const instanced = useContext(InstancedChairsContext);
   if (!def) return <Box w={w} h={h} d={d} color="#f0f" />;
 
   // En un gemelo digital la arquitectura real ya está en el escaneo: solo se marca.
@@ -366,9 +394,9 @@ export function FurnitureMesh({ item, def, custom, wallHeight, lightsOn, twin = 
         </group>
       );
     case 'silla':
-      return <Chair color={color} />;
+      return instanced ? null : <Chair color={color} />;
     case 'silla-conferencia':
-      return <Chair conference />;
+      return instanced ? null : <Chair conference />;
     case 'sofa':
       return (
         <group>

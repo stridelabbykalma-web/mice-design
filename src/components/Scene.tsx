@@ -7,6 +7,7 @@ import { useStore } from '../store';
 import type { CatalogDef, Item, Project, Space, WallSide } from '../types';
 import { findDef, footprint, itemDims } from '../catalog';
 import { sceneApi } from './sceneApi';
+import { ChairInstances, InstancedChairsContext } from './ChairInstances';
 import { FurnitureMesh, useAssetTexture, useGltf } from './Furniture';
 import { assetUrl } from '../lib/db';
 import { DEG, snapValue, corners } from '../lib/geometry';
@@ -30,6 +31,9 @@ let hitItemThisPress = false;
 let dragState: { ids: string[]; start: THREE.Vector3; orig: Map<string, { x: number; z: number }>; moved: boolean } | null = null;
 
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+/** Móviles y tabletas: menos resolución de dibujo para ganar fluidez y batería. */
+const IS_MOBILE = typeof navigator !== 'undefined' && (/iPhone|iPad|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent)));
 
 function floorPoint(e: { clientX: number; clientY: number }, el: HTMLElement, camera: THREE.Camera, raycaster: THREE.Raycaster) {
   const r = el.getBoundingClientRect();
@@ -370,7 +374,8 @@ function Walls({ space, view }: { space: Space; view: string }) {
     };
   });
   // Las paredes que quedan entre la cámara y la sala se vuelven translúcidas.
-  useFrame(({ camera }) => {
+  useFrame(({ camera, invalidate }) => {
+    let animating = false;
     walls.forEach((w, i) => {
       const g = refs.current[i];
       if (!g) return;
@@ -381,11 +386,16 @@ function Walls({ space, view }: { space: Space; view: string }) {
       g.traverse((o) => {
         const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
         if (!mat) return;
-        mat.opacity += (target - mat.opacity) * 0.2;
+        if (Math.abs(target - mat.opacity) > 0.005) {
+          mat.opacity += (target - mat.opacity) * 0.2;
+          animating = true;
+        } else mat.opacity = target;
         mat.transparent = mat.opacity < 0.99;
         mat.depthWrite = mat.opacity > 0.5;
       });
     });
+    // Con el dibujo bajo demanda, se piden fotogramas solo mientras dura la transición
+    if (animating) invalidate();
   });
   if (view === 'planta') return null;
   return (
@@ -539,6 +549,41 @@ function Outline({ item, def, color }: { item: Item; def?: CatalogDef; color: st
   );
 }
 
+/** Pulsación sobre un elemento: seleccionar y empezar a arrastrar (también desde sillas agrupadas). */
+export function itemPointerDown(e: ThreeEvent<PointerEvent>, itemId: string) {
+    if (e.button !== 0) return;
+    const st = useStore.getState();
+    if (st.tool !== 'select') return;
+    e.stopPropagation();
+    hitItemThisPress = true;
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    let ids = st.selection;
+    if (additive) {
+      st.select([itemId], true);
+      return;
+    }
+    if (!ids.includes(itemId)) {
+      ids = [itemId];
+      st.select(ids);
+    }
+    const p = new THREE.Vector3();
+    if (!e.ray.intersectPlane(floorPlane, p)) return;
+    const proj = st.project!;
+    // Al mover una mesa se mueve con su decoración
+    const extra = proj.items
+      .filter((t) => ids.includes(t.id) && isTableDef(findDef(t.type, proj.customCatalog)))
+      .flatMap((t) => attachedDecor(proj, t).map((d) => d.id))
+      .filter((id) => !ids.includes(id));
+    ids = [...ids, ...extra];
+    dragState = {
+      ids,
+      start: p,
+      orig: new Map(proj.items.filter((i) => ids.includes(i.id)).map((i) => [i.id, { x: i.x, z: i.z }])),
+      moved: false,
+    };
+    useInteraction.setState({ dragging: true });
+  }
+
 const ItemNode = memo(function ItemNode({
   item,
   def,
@@ -568,37 +613,7 @@ const ItemNode = memo(function ItemNode({
   interactive: boolean;
 }) {
   const onDown = (e: ThreeEvent<PointerEvent>) => {
-    if (!interactive || e.button !== 0) return;
-    const st = useStore.getState();
-    if (st.tool !== 'select') return;
-    e.stopPropagation();
-    hitItemThisPress = true;
-    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
-    let ids = st.selection;
-    if (additive) {
-      st.select([item.id], true);
-      return;
-    }
-    if (!ids.includes(item.id)) {
-      ids = [item.id];
-      st.select(ids);
-    }
-    const p = new THREE.Vector3();
-    if (!e.ray.intersectPlane(floorPlane, p)) return;
-    const proj = st.project!;
-    // Al mover una mesa se mueve con su decoración
-    const extra = proj.items
-      .filter((t) => ids.includes(t.id) && isTableDef(findDef(t.type, proj.customCatalog)))
-      .flatMap((t) => attachedDecor(proj, t).map((d) => d.id))
-      .filter((id) => !ids.includes(id));
-    ids = [...ids, ...extra];
-    dragState = {
-      ids,
-      start: p,
-      orig: new Map(proj.items.filter((i) => ids.includes(i.id)).map((i) => [i.id, { x: i.x, z: i.z }])),
-      moved: false,
-    };
-    useInteraction.setState({ dragging: true });
+    if (interactive) itemPointerDown(e, item.id);
   };
   return (
     <group position={[item.x, elev + (item.y ?? 0), item.z]} rotation={[0, item.rot * DEG, 0]} onPointerDown={onDown} userData={{ itemId: item.id }}>
@@ -618,7 +633,14 @@ function Items({ project, view }: { project: Project; view: string }) {
   const selection = useStore((s) => s.selection);
   const clientMode = useStore((s) => s.clientMode);
   const sel = useMemo(() => new Set(selection), [selection]);
-  const problems = useMemo(() => problemItemIds(analyze(project).checks), [project]);
+  // Durante el arrastre no se recalcula la seguridad (se actualiza al soltar)
+  const dragging = useInteraction((s) => s.dragging);
+  const lastProblems = useRef<Set<string>>(new Set());
+  const problems = useMemo(() => {
+    if (dragging) return lastProblems.current;
+    return (lastProblems.current = problemItemIds(analyze(project).checks));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging ? null : project, dragging]);
   const lightsOn = project.lighting === 'noche' || project.lighting === 'gala';
   // Lo que se coloca encima de un escenario se eleva a su altura.
   const stages = project.items.filter((i) => i.type === 'escenario');
@@ -649,8 +671,14 @@ function Items({ project, view }: { project: Project; view: string }) {
     }
     return 0;
   };
+  // Misma función mientras no cambien los elementos (para no recalcular las sillas agrupadas)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const elevationFn = useMemo(() => elevation, [project.items, project.customCatalog]);
+  const interactiveScene = !clientMode && view !== 'paseo';
   return (
     <group>
+      <ChairInstances project={project} elevation={elevationFn} onDown={interactiveScene ? itemPointerDown : undefined} />
+      <InstancedChairsContext.Provider value={true}>
       {project.items.map((it) => {
         const def = findDef(it.type, project.customCatalog);
         return (
@@ -671,6 +699,7 @@ function Items({ project, view }: { project: Project; view: string }) {
           />
         );
       })}
+      </InstancedChairsContext.Provider>
     </group>
   );
 }
@@ -991,10 +1020,11 @@ function Cameras({ space, view, wrap }: { space: Space; view: string; wrap: Reac
 }
 
 function ApiBridge({ root }: { root: React.RefObject<THREE.Group> }) {
-  const { gl, scene } = useThree();
+  const { gl, scene, get } = useThree();
   useEffect(() => {
     sceneApi.gl = gl;
     sceneApi.scene = scene;
+    sceneApi.camera = () => get().camera;
     sceneApi.exportRoot = root.current ?? undefined;
   }, [gl, scene, root]);
   return null;
@@ -1013,7 +1043,14 @@ export default function Scene() {
   const { space } = project;
   return (
     <div ref={wrap} className={`scene-wrap tool-${tool}`}>
-      <Canvas shadows dpr={[1, 2]} gl={{ preserveDrawingBuffer: true, antialias: true }} key={view}>
+      <Canvas
+        shadows
+        dpr={IS_MOBILE ? [1, 1.5] : [1, 2]}
+        gl={{ preserveDrawingBuffer: true, antialias: true }}
+        // Solo se dibuja cuando algo cambia, salvo en el paseo y con splats (que lo necesitan)
+        frameloop={view === 'paseo' || space.splat ? 'always' : 'demand'}
+        key={view}
+      >
         <Cameras space={space} view={view} wrap={wrap} />
         <Lighting project={project} />
         <group ref={root} name="mice-design-escena">
