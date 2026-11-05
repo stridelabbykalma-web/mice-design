@@ -539,7 +539,7 @@ function Outline({ item, def, color }: { item: Item; def?: CatalogDef; color: st
     return [...c, c[0]].map((p) => new THREE.Vector3(p.x, 0, p.z));
   }, [f.w, f.d]);
   return (
-    <group position={[0, 0.025, 0]}>
+    <group position={[0, 0.025, 0]} name="ayuda-seleccion">
       <Polyline points={pts} color={color} />
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[f.w + 0.06, f.d + 0.06]} />
@@ -676,7 +676,7 @@ function Items({ project, view }: { project: Project; view: string }) {
   const elevationFn = useMemo(() => elevation, [project.items, project.customCatalog]);
   const interactiveScene = !clientMode && view !== 'paseo';
   return (
-    <group>
+    <group name="mice-montaje">
       <ChairInstances project={project} elevation={elevationFn} onDown={interactiveScene ? itemPointerDown : undefined} />
       <InstancedChairsContext.Provider value={true}>
       {project.items.map((it) => {

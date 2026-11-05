@@ -11,6 +11,7 @@ import { PhotoMeasureHost } from './components/PhotoMeasure';
 import { CompareModal, VariantMenu } from './components/Variants';
 import { ClientComments, ShareModal } from './components/Share';
 import { SyncIndicator } from './components/SyncPanel';
+import { ArModal } from './components/ArModal';
 import { loadShare, sharedIdFromHash } from './lib/cloud';
 import { normalizeOutline, roomArea } from './lib/outline';
 import { locale, t } from './lib/i18n';
@@ -113,6 +114,7 @@ function Editor() {
   const [order, setOrder] = useState<{ plan?: string; view?: string } | null>(null);
   const [compare, setCompare] = useState(false);
   const [share, setShare] = useState(false);
+  const [ar, setAr] = useState(false);
   const [busy, setBusy] = useState('');
   const [mobilePanel, setMobilePanel] = useState(false);
   useKeyboard();
@@ -198,6 +200,7 @@ function Editor() {
               Imagen de la vista actual (PNG)
             </button>
             <button onClick={openOrder}>Orden de montaje / propuesta (PDF)</button>
+            <button onClick={() => setAr(true)}>Ver en la sala con el iPhone (realidad aumentada)</button>
             <button onClick={exportGlb}>Modelo 3D del evento (.glb)</button>
             <button
               onClick={async () => {
@@ -341,6 +344,7 @@ function Editor() {
       {order && <OrderSheet images={order} onClose={() => setOrder(null)} />}
       {compare && <CompareModal capture={capture} onClose={() => setCompare(false)} />}
       {share && <ShareModal onClose={() => setShare(false)} />}
+      {ar && <ArModal onClose={() => setAr(false)} />}
       <RectifyHost />
       <PhotoMeasureHost />
     </div>

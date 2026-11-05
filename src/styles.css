@@ -1998,3 +1998,11 @@ table.budget {
   color: #fff;
   font-weight: 600;
 }
+.ar-sheet {
+  max-width: 640px;
+}
+.ar-steps {
+  padding-left: 20px;
+  color: var(--muted);
+  line-height: 1.6;
+}
