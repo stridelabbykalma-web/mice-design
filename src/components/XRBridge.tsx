@@ -2,8 +2,9 @@
 //  · Realidad mixta: se ve la sala real y encima el montaje. Se alinea marcando con el mando
 //    (o pellizcando con la mano) las dos esquinas del frente de la sala.
 //  · Realidad virtual: el gemelo completo; se camina o se teletransporta apuntando al suelo.
-//  · Medir la sala: las gafas leen su escaneo de la sala (paredes, puertas, ventanas, techo)
-//    o se marcan las esquinas a mano; la sala se guarda en el proyecto y se diseña en el PC.
+//  · Medir la sala: las gafas leen su escaneo de la sala (paredes, puertas, ventanas, techo);
+//    si no lo tienen, la app les pide escanearla en ese momento, y si no pueden, se marcan
+//    las esquinas a mano; la sala se guarda en el proyecto y se diseña en el PC.
 //  · Al volver a entrar, el montaje se coloca solo: con el anclaje que guardan las gafas o
 //    encajando la sala con las paredes que detectan.
 
@@ -114,6 +115,8 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   const anchor = useRef<any>(null);
   const pendingAnchor = useRef(false);
   const fitted = useRef(false);
+  /** Escaneo de la sala lanzado por la app (la propia herramienta de escaneo de las gafas). */
+  const capture = useRef<{ state: 'none' | 'running' | 'done' | 'failed'; at: number }>({ state: 'none', at: 0 });
   const reticle = useMemo(() => {
     const m = new THREE.Mesh(
       new THREE.RingGeometry(0.06, 0.09, 32).rotateX(-Math.PI / 2),
@@ -161,6 +164,26 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
     } catch (e) {
       useXR.setState({ message: (e as Error).message });
     }
+  };
+
+  /** Abre el escaneo de la sala de las gafas desde la app (Quest: Configuración del espacio). */
+  const startCapture = (): boolean => {
+    const sess = gl.xr.getSession() as AnySession | null;
+    if (!sess?.initiateRoomCapture) return false;
+    capture.current = { state: 'running', at: performance.now() };
+    scanned.current = [];
+    guide.set([]);
+    useXR.setState({ step: 3, message: 'Las gafas van a escanear la sala:\nmira despacio a todas las paredes, el suelo y el techo' });
+    sess.initiateRoomCapture().then(
+      () => {
+        capture.current = { state: 'done', at: performance.now() };
+        useXR.setState({ message: 'Escaneo terminado. Leyendo las paredes…' });
+      },
+      () => {
+        capture.current = { state: 'failed', at: performance.now() };
+      },
+    );
+    return true;
   };
 
   // Mandos (o manos): rayo, punto en el suelo y pulsación (gatillo o pellizco)
@@ -243,8 +266,16 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       c.addEventListener('select', h);
       return h;
     });
+    // Botón lateral (agarre): volver a escanear la sala
+    const onSqueeze = () => {
+      if (useXR.getState().task !== 'medir') return;
+      points.current = [];
+      if (!startCapture()) useXR.setState({ message: 'Este navegador no permite abrir el escaneo de la sala.\nMarca las esquinas con el gatillo' });
+    };
+    ctrls.forEach((c) => c.addEventListener('squeeze', onSqueeze));
     return () => {
       ctrls.forEach((c, i) => {
+        c.removeEventListener('squeeze', onSqueeze);
         c.removeEventListener('select', handlers[i]);
         c.remove(rays[i]);
         scene.remove(c);
@@ -270,6 +301,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       await gl.xr.setSession(session);
       started.current = performance.now();
       fitted.current = false;
+      capture.current = { state: 'none', at: 0 };
       anchor.current = null;
       scanned.current = [];
       useXR.setState({
@@ -342,16 +374,22 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
           guide.set(segs);
           if (segs.length) {
             const r = parseRoomPlan(planesToRoomPlan(scanned.current));
-            useXR.setState({ message: `Sala detectada: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes\nRevisa las líneas verdes y pulsa el gatillo para guardarla` });
-          } else if (waited > 3000) {
-            const sess = gl.xr.getSession() as AnySession | null;
-            const canCapture = !!sess?.initiateRoomCapture && !frame.detectedPlanes?.size;
-            if (canCapture && waited < 4500) sess!.initiateRoomCapture!().catch(() => undefined);
-            points.current = [];
             useXR.setState({
-              step: 4,
-              message: 'Sin escaneo de esta sala: marca a mano las esquinas.\nApunta al suelo en cada esquina y pulsa el gatillo',
+              message: `Sala detectada: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes. Gatillo: guardarla\n¿No es esta sala o falta una parte? Botón lateral: escanear de nuevo`,
             });
+          } else {
+            // Sin escaneo: las gafas lo hacen ahora; si no pueden, se marcan las esquinas a mano.
+            const cap = capture.current;
+            const manual = () => {
+              points.current = [];
+              useXR.setState({
+                step: 4,
+                message: 'Sin escaneo de esta sala: marca a mano las esquinas.\nApunta al suelo en cada esquina y pulsa el gatillo',
+              });
+            };
+            if (cap.state === 'none' && waited > 1500) {
+              if (!startCapture()) manual();
+            } else if (cap.state === 'failed' || (cap.state === 'done' && now - cap.at > 5000)) manual();
           }
         } else if (st.task === 'ver' && !fitted.current && st.step === 0) {
           const sp = useStore.getState().project?.space;
