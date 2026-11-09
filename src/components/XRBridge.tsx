@@ -148,6 +148,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         ['puerta', 'salida', 'ventana', 'tabique'],
       );
       anchor.current = null;
+      if (st.project?.measureRequest) st.patchProject({ measureRequest: undefined });
       // El modelo se creó en las coordenadas de la medición: se coloca justo encima.
       root.current?.rotation.set(0, -r.frame.theta, 0);
       root.current?.position.set(r.frame.x, 0, r.frame.z);

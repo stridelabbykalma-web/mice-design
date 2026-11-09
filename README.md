@@ -84,6 +84,7 @@ El ejemplo *Gemelo digital de una sala* usa un **escaneo simulado** (`src/assets
   - *Realidad mixta*: se ve la sala real y encima el montaje. Se alinea marcando con el mando o pellizcando con la mano las dos esquinas del frente; si la distancia real no coincide con la de la app, avisa de la diferencia en centímetros.
   - *Realidad virtual*: el gemelo digital completo; se camina o se teletransporta apuntando al suelo.
   - **Medir esta sala con las gafas** (flujo gafas → PC → gafas):
+    - Lo más rápido: en el móvil o el ordenador (con la cuenta del hotel), tarjeta *Medir la sala con las gafas → dame el código*. En las gafas solo se escribe ese código (pestaña «Gafas o móvil»): se abre la sala con el botón «Medir esta sala ahora» y, al guardar, la sala aparece en el móvil y el ordenador.
     1. En la app, en las gafas (emparejadas con la opción «Móvil o gafas que editan»): *Gafas → 📏 Medir esta sala*. Si las gafas no tienen esa sala escaneada, la app abre su escaneo (el de *Configuración del espacio*): se camina mirando las paredes, el suelo y el techo, y al terminar se vuelve solo a la app. El botón lateral del mando repite el escaneo.
     2. Las paredes detectadas se ven en verde con sus medidas; con el gatillo se guardan en el proyecto (medidas, forma, altura, puertas y ventanas). Si el escaneo no es posible o se cancela (salones muy grandes), se marcan las esquinas en el suelo con el mando y se cierra volviendo a la primera.
     3. En el ordenador se diseña el montaje sobre esa sala (se sincroniza solo).

@@ -204,6 +204,8 @@ export interface Project {
   updatedAt: number;
   /** Identificador de este guardado: distingue dos versiones guardadas en el mismo milisegundo en dos dispositivos. */
   rev?: string;
+  /** Se ha pedido medir esta sala con las gafas: al abrirla en ellas se ofrece hacerlo. */
+  measureRequest?: boolean;
   space: Space;
   items: Item[];
   customCatalog: CatalogDef[];

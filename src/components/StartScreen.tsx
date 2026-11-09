@@ -161,6 +161,15 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
       </header>
 
       <main className="start-main">
+        <HeadsetMeasure
+          viewer={role === 'viewer'}
+          create={() => {
+            const p = newProject(blankSpace('fotogrametria', 'Sala medida con las gafas', 10, 8, 3), 'Nuevo evento', hotel);
+            db.saveProject(p).then(refresh);
+            return p;
+          }}
+        />
+
         <h2>Salas de ejemplo</h2>
         <p className="hint">Salas típicas de hotel con su evento ya montado por fases. Ábrelas para probar la app o como punto de partida.</p>
         <div className="project-list">
@@ -181,15 +190,6 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
             </div>
           ))}
         </div>
-
-        <HeadsetMeasure
-          viewer={role === 'viewer'}
-          create={() => {
-            const p = newProject(blankSpace('fotogrametria', 'Sala medida con las gafas', 10, 8, 3), 'Nuevo evento', hotel);
-            db.saveProject(p);
-            openProject(p);
-          }}
-        />
 
         <h2>1. ¿Cómo quieres crear el espacio digital?</h2>
         <div className="method-grid">

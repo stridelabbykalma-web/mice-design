@@ -16,7 +16,7 @@ import { needsLogin, useAuth } from './lib/auth';
 import { ArModal } from './components/ArModal';
 import { projectToDxf } from './lib/dxf';
 import { activeSession, logEvent, stopSession } from './lib/usageLog';
-import { XrButton } from './components/XrButton';
+import { MeasurePrompt, XrButton } from './components/XrButton';
 import { loadShare, sharedIdFromHash } from './lib/cloud';
 import { normalizeOutline, roomArea } from './lib/outline';
 import { locale, t } from './lib/i18n';
@@ -338,6 +338,7 @@ function Editor() {
               </button>
             </div>
           )}
+          <MeasurePrompt />
           {st.tool === 'align' && (
             <div className="hint-bar">
               {
