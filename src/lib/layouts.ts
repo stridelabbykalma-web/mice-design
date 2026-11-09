@@ -6,7 +6,7 @@ import type { Item, LayoutType, Project } from '../types';
 import { findDef, footprint, itemDims } from '../catalog';
 import { OBB, obbOverlap } from './geometry';
 import { insideSpace } from './outline';
-import { exitClearance, isExit } from './safety';
+import { exitClearance, isExit, obbOf } from './safety';
 
 export interface LayoutOptions {
   type: LayoutType;
@@ -59,7 +59,22 @@ export function generatedTypes(project: Project): string[] {
   return [...types];
 }
 
+/**
+ * Genera el montaje. Si con las holguras cómodas no caben las personas pedidas, se repite
+ * con las mínimas (márgenes de 0,8 m, 0,6 m entre respaldos en banquete, menos distancia
+ * a la pantalla) y se avisa.
+ */
 export function generateLayout(project: Project, o: LayoutOptions): { items: NewItem[]; pax: number; warning?: string } {
+  const r = layoutOnce(project, o, false);
+  if (o.pax <= 0 || r.pax >= o.pax) return r;
+  const c = layoutOnce(project, o, true);
+  if (c.pax <= r.pax) return r;
+  const note = 'Montaje ajustado: márgenes y pasillos mínimos para acercarse a las personas pedidas.';
+  return { ...c, warning: c.warning ? `${c.warning} ${note}` : note };
+}
+
+function layoutOnce(project: Project, o0: LayoutOptions, compact: boolean): { items: NewItem[]; pax: number; warning?: string } {
+  const o = compact ? { ...o0, margin: Math.min(o0.margin, 0.8) } : o0;
   const { space, customCatalog } = project;
   const W = space.width;
   const D = space.depth;
@@ -70,7 +85,12 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
   for (const it of project.items) {
     const d = def(it.type);
     if (!d || d.category !== 'arquitectura') continue;
-    if (isExit(it.type)) obstacles.push(exitClearance(it, d, 1.5));
+    if (isExit(it.type)) {
+      // Zona libre delante de puertas y salidas: 1,5 m de fondo y, como mínimo, el ancho del
+      // círculo de giro de una silla de ruedas (1,5 m)
+      const c = exitClearance(it, d, 1.5);
+      obstacles.push({ ...c, w: Math.max(c.w, 1.6) });
+    }
     else if (it.type === 'columna' || it.type === 'tabique') {
       const dims = itemDims(it, d);
       obstacles.push({ x: it.x, z: it.z, w: dims.w + 0.3, d: dims.d + 0.3, rot: it.rot });
@@ -82,21 +102,30 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
 
   // Escenario / pantalla en el frente (pared norte, z negativa)
   // Banquete: solo si se pide escenario (cenas de gala con premios)
+  let stageNote: string | undefined;
   if (o.type !== 'coctel' && o.type !== 'imperial' && (o.type !== 'banquete' || o.stage)) {
-    if (o.stage) {
-      // En banquete el escenario es más pequeño (discursos y premios) para no perder mesas
-      const ban = o.type === 'banquete';
-      const sw = ban ? Math.min(6, Math.max(3, W * 0.3)) : Math.min(8, Math.max(3, W * 0.4));
-      const sd = ban ? 2.4 : D > 14 ? 3 : 2.4;
-      const st: NewItem = { type: 'escenario', x: 0, z: -D / 2 + 0.45 + sd / 2, rot: 0, w: sw, d: sd, h: 0.4 };
+    // En banquete el escenario es más pequeño (discursos y premios) para no perder mesas
+    const ban = o.type === 'banquete';
+    const sw = ban ? Math.min(6, Math.max(3, W * 0.3)) : Math.min(8, Math.max(3, W * 0.4));
+    const sd = ban ? 2.4 : D > 14 ? 3 : 2.4;
+    const afterStage = ban ? 1 : compact ? 1.2 : 1.8;
+    const stageBox = { x: 0, z: -D / 2 + 0.45 + sd / 2, w: sw, d: sd, rot: 0 };
+    // El escenario solo se monta si cabe en la forma de la sala, no tapa una salida y deja
+    // al menos 3,5 m de fondo para el público.
+    const stageOk = o.stage && D / 2 - o.margin - (-D / 2 + 0.45 + sd + afterStage) >= 3.5 && insideSpace(stageBox, space, 0) && !obstacles.some((ob) => obbOverlap(ob, stageBox));
+    if (o.stage && !stageOk) stageNote = 'No hay sitio para un escenario en el frente de esta sala: se ha montado sin él.';
+    if (stageOk) {
+      const st: NewItem = { type: 'escenario', x: 0, z: stageBox.z, rot: 0, w: sw, d: sd, h: 0.4 };
       out.push(st);
-      obstacles.push({ x: st.x, z: st.z, w: sw, d: sd, rot: 0 });
+      obstacles.push(stageBox);
       out.push({ type: 'atril', x: sw / 2 - 0.8, z: st.z + sd / 2 - 0.5, rot: 0 });
-      front = -D / 2 + 0.45 + sd + (ban ? 1 : 1.8);
+      front = -D / 2 + 0.45 + sd + afterStage;
       if (o.screen) out.push({ type: 'pantalla', x: 0, z: -D / 2 + 0.2, rot: 0, w: Math.min(6, sw * 0.7), h: Math.min(space.height - 0.3, 3) });
     } else if (o.screen) {
-      out.push({ type: 'pantalla', x: 0, z: -D / 2 + 0.4, rot: 0, w: Math.min(4, W * 0.4), h: Math.min(space.height - 0.3, 2.6) });
-      front = -D / 2 + 0.4 + 2.5;
+      const sc = { type: 'pantalla', x: 0, z: -D / 2 + 0.4, rot: 0, w: Math.min(4, W * 0.4), h: Math.min(space.height - 0.3, 2.6) };
+      // La pantalla necesita pared detrás (en salas con forma puede no haberla en el centro)
+      if (insideSpace({ x: 0, z: sc.z, w: sc.w, d: 0.3, rot: 0 }, space, 0)) out.push(sc);
+      front = -D / 2 + 0.4 + (compact || D < 8 ? 1.6 : 2.5);
     }
   }
 
@@ -126,8 +155,7 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
         for (let k = 0; k < perBlock && pax < target; k++) {
           const x = startX + b * (blockW + o.aisle) + cellW * (k + 0.5);
           const { item, seats } = make(x, z);
-          const fp = footprint(item as Item, def(item.type));
-          if (!fits({ x, z, w: fp.w, d: fp.d, rot: item.rot })) continue;
+          if (!fits(obbOf(item as Item, def(item.type)))) continue;
           out.push(item);
           pax += seats;
         }
@@ -157,10 +185,10 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
       const td = def(o.tableType);
       const chairs = td?.chairs ?? 10;
       const size = (td?.w ?? 1.8) + 1.0; // mesa + sillas
-      const pitch = size + 0.9; // pasillo de servicio entre sillas
+      const basePitch = size + (compact ? 0.6 : 0.9); // pasillo de servicio entre respaldos
       // Se prueban varios desplazamientos de la cuadrícula (útil en salas con forma o con
       // columnas) y se elige el que más personas acomoda.
-      const tryGrid = (ox: number, oz: number, staggered: boolean) => {
+      const tryGrid = (pitch: number, ox: number, oz: number, staggered: boolean) => {
         const pitchZ = staggered ? pitch * 0.87 : pitch;
         const cand: { x: number; z: number }[] = [];
         let row = 0;
@@ -183,14 +211,29 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
         }
         return placed;
       };
+      const search = (pitch: number) => {
+        let found: { x: number; z: number }[] = [];
+        for (const st of o.staggered ? [true, false] : [false])
+          for (let i = 0; i < 4; i++)
+            for (let j = 0; j < 3; j++) {
+              const r = tryGrid(pitch, (i * pitch) / 4, (j * pitch) / 6, st);
+              if (r.length > found.length) found = r;
+              if (found.length * chairs >= target) return found;
+            }
+        return found;
+      };
+      // Con menos personas de las que caben, las mesas se reparten por toda la sala: se usa
+      // la separación más amplia con la que siguen cabiendo todas.
       let best: { x: number; z: number }[] = [];
-      for (const st of o.staggered ? [true, false] : [false])
-        for (let i = 0; i < 4; i++)
-          for (let j = 0; j < 3; j++) {
-            const r = tryGrid((i * pitch) / 4, (j * pitch) / 6, st);
-            if (r.length > best.length) best = r;
-            if (best.length * chairs >= target) break;
+      if (Number.isFinite(target))
+        for (const extra of [1.8, 1.4, 1.0, 0.7, 0.4, 0.2]) {
+          const r = search(basePitch + extra);
+          if (r.length * chairs >= target) {
+            best = r;
+            break;
           }
+        }
+      if (!best.length) best = search(basePitch);
       for (const c of best) {
         out.push({ type: o.tableType, x: c.x, z: c.z, rot: 0, chairs, chairType: o.chairType, centerpiece: true });
         pax += chairs;
@@ -239,22 +282,29 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
         const tables = Math.ceil(target / per);
         nb = Math.min(maxBase, Math.max(1, Math.round(tables / 3.6)));
         na = Math.min(maxArm, Math.max(1, Math.ceil((tables - nb) / 2)));
+        // Si los brazos no dan más de sí (sala poco profunda), se alarga la base
+        nb = Math.min(maxBase, Math.max(nb, tables - 2 * na));
       }
       const baseW = nb * tw;
       const zBase = front + na * tw + tdp / 2;
       const xs = -baseW / 2 - tdp / 2;
-      const tryPush = (it: NewItem) => {
-        const fp = footprint(it as Item, def(it.type));
-        if (!fits({ x: it.x, z: it.z, w: fp.w, d: fp.d, rot: it.rot })) return;
-        out.push(it);
-        pax += per;
-      };
-      for (let k = 0; k < nb; k++) tryPush({ type: o.tableType, x: -baseW / 2 + tw * (k + 0.5), z: zBase, rot: 0, chairs: per, chairType: o.chairType });
-      for (let k = 0; k < na; k++) {
-        const z = zBase - tdp / 2 - tw * (k + 0.5);
-        tryPush({ type: o.tableType, x: xs, z, rot: -90, chairs: per, chairType: o.chairType });
-        tryPush({ type: o.tableType, x: -xs, z, rot: 90, chairs: per, chairType: o.chairType });
+      // Se prueba la U centrada y, si alguna mesa no cabe (una puerta, una columna), algo
+      // desplazada a un lado: se elige la primera posición en la que entra completa.
+      let bestU: NewItem[] = [];
+      for (const dx of [0, -0.3, 0.3, -0.6, 0.6, -0.9, 0.9]) {
+        const pieces: NewItem[] = [];
+        for (let k = 0; k < nb; k++) pieces.push({ type: o.tableType, x: dx - baseW / 2 + tw * (k + 0.5), z: zBase, rot: 0, chairs: per, chairType: o.chairType });
+        for (let k = 0; k < na; k++) {
+          const z = zBase - tdp / 2 - tw * (k + 0.5);
+          pieces.push({ type: o.tableType, x: dx + xs, z, rot: -90, chairs: per, chairType: o.chairType });
+          pieces.push({ type: o.tableType, x: dx - xs, z, rot: 90, chairs: per, chairType: o.chairType });
+        }
+        const ok = pieces.filter((it) => fits(obbOf(it as Item, def(it.type))));
+        if (ok.length > bestU.length) bestU = ok;
+        if (ok.length === pieces.length) break;
       }
+      out.push(...bestU);
+      pax += bestU.length * per;
       break;
     }
     case 'imperial': {
@@ -305,5 +355,6 @@ export function generateLayout(project: Project, o: LayoutOptions): { items: New
 
   let warning: string | undefined;
   if (Number.isFinite(target) && pax < target) warning = `Solo caben ${pax} personas con este montaje y estos márgenes.`;
+  if (stageNote) warning = warning ? `${warning} ${stageNote}` : stageNote;
   return { items: out, pax, warning };
 }

@@ -202,6 +202,8 @@ export interface Project {
   hotel: string;
   createdAt: number;
   updatedAt: number;
+  /** Identificador de este guardado: distingue dos versiones guardadas en el mismo milisegundo en dos dispositivos. */
+  rev?: string;
   space: Space;
   items: Item[];
   customCatalog: CatalogDef[];

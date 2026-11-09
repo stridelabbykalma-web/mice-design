@@ -11,7 +11,7 @@ import { authHeaders, authRpc, isViewer, ls, useAuth } from './auth';
 import { db, getAsset, projectAssetIds, registerAsset } from './db';
 import { useLibrary } from './library';
 import { useXR } from './xr';
-import { useStore } from '../store';
+import { hasPendingSave, useStore } from '../store';
 
 const BUCKET = 'mice-hotel';
 const keyFor = (k: string) => `mice-sync-${useAuth.getState().hotel?.id ?? 'x'}-${k}`;
@@ -88,6 +88,7 @@ async function downloadAssets(ws: string, ids: string[]) {
 function libraryAssets(e: LibraryEntry): string[] {
   const ids = new Set<string>();
   [e.def, ...(e.table?.defs ?? []), ...(e.room?.defs ?? [])].forEach((d) => d?.modelAssetId && ids.add(d.modelAssetId));
+  e.table?.decor.forEach((d) => d.imageAssetId && ids.add(d.imageAssetId));
   if (e.room) projectAssetIds({ space: e.room.space, items: e.room.items, customCatalog: e.room.defs } as Project).forEach((i) => ids.add(i));
   return [...ids];
 }
@@ -102,52 +103,88 @@ interface Row {
 
 let running = false;
 let again = false;
+/** Proyecto en el que saltó el aviso de conflicto. */
+let conflictFor: string | null = null;
+let conflictTs = 0;
+const OVERLAP = 5 * 60 * 1000;
+let lastReview = 0;
 
 /** Sube los cambios locales y baja los del otro dispositivo. */
 export async function syncNow(): Promise<void> {
   const ws = useSync.getState().ws;
   // Una propuesta abierta desde el enlace del cliente no se sincroniza
-  if (!ws || !cloudReady() || useStore.getState().shareId) return;
+  if (!ws || !cloudReady() || (useStore.getState().readOnly && useStore.getState().shareId)) return;
   if (running) {
     again = true;
     return;
   }
   running = true;
   useSync.setState({ status: 'syncing' });
+  const pushed = readJson<Record<string, number>>(keyFor('pushed'), {});
   try {
-    const pushed = readJson<Record<string, number>>(keyFor('pushed'), {});
-    // 1. Bajar cambios
+    // El aviso de conflicto es del proyecto en el que saltó: al cambiar de proyecto se retira
+    const openNow = useStore.getState().project?.id;
+    if (useSync.getState().conflict && conflictFor !== openNow) useSync.setState({ conflict: false });
+    // 1. Bajar cambios. Se vuelve a pedir un margen de 5 minutos por detrás de lo ya visto:
+    // una fila puede llegar al servidor más tarde que otra con fecha posterior (subida lenta
+    // de un escaneo, relojes desajustados) y sin ese margen no se recibiría nunca.
     const since = Number(ls.get(keyFor('pull')) ?? 0);
-    const rows = (await authRpc<Row[]>('hotel_pull', { p_hotel: ws, p_since: since })) ?? [];
+    // El repaso con margen se hace cada 30 s; el resto de consultas solo piden lo nuevo.
+    const review = Date.now() - lastReview > 30000;
+    if (review) lastReview = Date.now();
+    const rows = (await authRpc<Row[]>('hotel_pull', { p_hotel: ws, p_since: review ? Math.max(0, since - OVERLAP) : since })) ?? [];
     let maxSeen = since;
     let libChanged = false;
+    const skipPush = new Set<string>();
     for (const r of rows) {
       maxSeen = Math.max(maxSeen, r.updated_at);
       const key = `${r.kind}:${r.id}`;
       if (r.kind === 'project') {
         const local = await db.getProject(r.id);
-        if (local && local.updatedAt >= r.updated_at) continue;
-        const open = useStore.getState().project;
-        const openHere = open?.id === r.id;
+        const remoteRev = (r.data as Project | null)?.rev;
+        // Misma fecha pero otro guardado: dos dispositivos guardaron a la vez. Gana siempre el
+        // mismo (el de identificador mayor) para que los dos acaben con la misma versión.
+        const tie = !!local && local.updatedAt === r.updated_at && !!remoteRev && !!local.rev && remoteRev !== local.rev;
+        if (tie && local!.rev! > remoteRev!) {
+          // Gana la de aquí: se vuelve a guardar con fecha posterior para que llegue al otro
+          const bumped = { ...local!, updatedAt: local!.updatedAt + 1 };
+          await db.saveProject(bumped);
+          const cur = useStore.getState().project;
+          if (cur?.id === r.id && cur.updatedAt === local!.updatedAt) useStore.setState({ project: { ...cur, updatedAt: bumped.updatedAt } });
+          continue;
+        }
+        if (local && local.updatedAt >= r.updated_at && !tie) continue;
+        // Versión ya tratada (el margen la trae de nuevo): si aquí no está es que se borró aquí
+        if (!local && (pushed[key] ?? 0) >= r.updated_at) continue;
         if (r.deleted) {
-          if (!openHere) await db.deleteProject(r.id);
+          if (useStore.getState().project?.id !== r.id) await db.deleteProject(r.id);
           pushed[key] = r.updated_at;
           continue;
         }
         const remote = { ...(r.data as Project), updatedAt: r.updated_at };
         await downloadAssets(ws, projectAssetIds(remote));
-        if (openHere) {
+        // La descarga puede tardar: el estado se lee después, no antes
+        const open = useStore.getState().project;
+        if (open?.id === r.id) {
           // Si aquí no hay cambios sin subir, se actualiza al momento; si los hay, se avisa.
-          const unsynced = !isViewer() && (pushed[key] ?? 0) < (open!.updatedAt ?? 0);
+          const unsynced = !isViewer() && (tie || hasPendingSave() || (pushed[key] ?? 0) < (open.updatedAt ?? 0));
           if (unsynced) {
+            conflictFor = r.id;
+            conflictTs = r.updated_at;
+            skipPush.add(key);
             useSync.setState({ conflict: true });
             continue;
           }
           useStore.getState().replaceProject(remote);
+        } else {
+          // Cerrado aquí, pero quizá con cambios guardados durante la descarga
+          const fresh = await db.getProject(r.id);
+          if (fresh && fresh.updatedAt >= r.updated_at && !tie) continue;
         }
         await db.saveProject(remote);
         pushed[key] = r.updated_at;
       } else {
+        if ((pushed[key] ?? 0) >= r.updated_at) continue;
         const entry = r.data as LibraryEntry | null;
         if (r.deleted) await db.deleteLibrary(r.id);
         else if (entry) {
@@ -159,34 +196,45 @@ export async function syncNow(): Promise<void> {
       }
     }
     ls.set(keyFor('pull'), String(maxSeen));
+    ls.set(keyFor('pushed'), JSON.stringify(pushed));
     if (libChanged) await useLibrary.getState().load();
 
     // 2. Subir cambios (las gafas y pantallas solo miran)
     if (isViewer()) {
-      ls.set(keyFor('pushed'), JSON.stringify(pushed));
       useSync.setState({ status: 'idle', last: Date.now(), message: '' });
       return;
     }
+    // Un fallo al subir un proyecto (un archivo demasiado grande) no bloquea los demás
+    let failed = '';
     for (const p of await db.listProjects()) {
       const key = `project:${p.id}`;
-      if ((pushed[key] ?? 0) >= p.updatedAt) continue;
-      await uploadAssets(ws, projectAssetIds(p));
-      await authRpc('hotel_push', { p_hotel: ws, p_kind: 'project', p_id: p.id, p_updated: p.updatedAt, p_deleted: false, p_data: p });
-      pushed[key] = p.updatedAt;
+      if ((pushed[key] ?? 0) >= p.updatedAt || skipPush.has(key)) continue;
+      try {
+        await uploadAssets(ws, projectAssetIds(p));
+        await authRpc('hotel_push', { p_hotel: ws, p_kind: 'project', p_id: p.id, p_updated: p.updatedAt, p_deleted: false, p_data: p });
+        pushed[key] = p.updatedAt;
+      } catch (e) {
+        failed = `«${p.name}»: ${(e as Error).message}`;
+      }
     }
     for (const e of await db.listLibrary()) {
       const key = `library:${e.id}`;
       const ts = e.updatedAt ?? e.createdAt;
       if ((pushed[key] ?? 0) >= ts) continue;
-      await uploadAssets(ws, libraryAssets(e));
-      await authRpc('hotel_push', { p_hotel: ws, p_kind: 'library', p_id: e.id, p_updated: ts, p_deleted: false, p_data: e });
-      pushed[key] = ts;
+      try {
+        await uploadAssets(ws, libraryAssets(e));
+        await authRpc('hotel_push', { p_hotel: ws, p_kind: 'library', p_id: e.id, p_updated: ts, p_deleted: false, p_data: e });
+        pushed[key] = ts;
+      } catch (x) {
+        failed = `«${e.name}»: ${(x as Error).message}`;
+      }
     }
-    ls.set(keyFor('pushed'), JSON.stringify(pushed));
-    useSync.setState({ status: 'idle', last: Date.now(), message: '' });
+    if (failed) useSync.setState({ status: 'error', message: `No se pudo subir ${failed}` });
+    else useSync.setState({ status: 'idle', last: Date.now(), message: '' });
   } catch (e) {
     useSync.setState({ status: 'error', message: (e as Error).message });
   } finally {
+    ls.set(keyFor('pushed'), JSON.stringify(pushed));
     running = false;
     if (again) {
       again = false;
@@ -211,18 +259,32 @@ export async function acceptRemote() {
   const ws = useSync.getState().ws;
   const open = useStore.getState().project;
   if (!ws || !open) return;
-  const rows = (await authRpc<Row[]>('hotel_pull', { p_hotel: ws, p_since: 0 })) ?? [];
-  const r = rows.find((x) => x.kind === 'project' && x.id === open.id && !x.deleted);
-  if (r) {
-    const remote = { ...(r.data as Project), updatedAt: r.updated_at };
-    await downloadAssets(ws, projectAssetIds(remote));
-    await db.saveProject(remote);
-    useStore.getState().replaceProject(remote);
-    const pushed = readJson<Record<string, number>>(keyFor('pushed'), {});
-    pushed[`project:${r.id}`] = r.updated_at;
-    ls.set(keyFor('pushed'), JSON.stringify(pushed));
+  try {
+    const rows = (await authRpc<Row[]>('hotel_pull', { p_hotel: ws, p_since: 0 })) ?? [];
+    const r = rows.find((x) => x.kind === 'project' && x.id === open.id && !x.deleted);
+    if (r) {
+      const remote = { ...(r.data as Project), updatedAt: r.updated_at };
+      await downloadAssets(ws, projectAssetIds(remote));
+      if (useStore.getState().project?.id !== open.id) return;
+      await db.saveProject(remote);
+      useStore.getState().replaceProject(remote);
+      const pushed = readJson<Record<string, number>>(keyFor('pushed'), {});
+      pushed[`project:${r.id}`] = r.updated_at;
+      ls.set(keyFor('pushed'), JSON.stringify(pushed));
+    }
+    useSync.setState({ conflict: false });
+  } catch (e) {
+    useSync.setState({ status: 'error', message: (e as Error).message });
   }
+}
+
+/** Conserva la versión de este dispositivo: se guarda con fecha posterior a la del otro. */
+export function keepMine() {
+  const open = useStore.getState().project;
   useSync.setState({ conflict: false });
+  if (!open) return;
+  if (open.id === conflictFor) useStore.setState({ project: { ...open, updatedAt: Math.max(open.updatedAt, conflictTs) } });
+  useStore.getState().patchProject({});
 }
 
 /** Arranca la sincronización automática: al guardar, cada 2 s con un proyecto abierto (en directo) y cada 15 s si no. */

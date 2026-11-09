@@ -201,6 +201,8 @@ export function projectAssetIds(p: Project): string[] {
   if (p.space.ceilingPhoto) ids.add(p.space.ceilingPhoto.assetId);
   Object.values(p.space.edgePhotos ?? {}).forEach((w) => ids.add(w.assetId));
   p.items.forEach((i) => i.imageAssetId && ids.add(i.imageAssetId));
+  // También las imágenes de las propuestas y fases que no están en pantalla
+  p.variants?.forEach((v) => v.items.forEach((i) => i.imageAssetId && ids.add(i.imageAssetId)));
   return [...ids];
 }
 

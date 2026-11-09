@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { syncedVariants, useStore } from '../store';
 import { ShareComment, addComment, cloudReady, listComments, publishShare, setResolved, shareLink } from '../lib/cloud';
 import { Toggle } from './ui';
 
 /** Muestra en el plano los comentarios de un enlace (numerados). */
 function showPins(shareId: string, list: ShareComment[]) {
+  void shareId;
+  // Solo las marcas: el identificador del enlace es para la vista del cliente
   useStore.getState().setCloud({
-    shareId,
     comments: list.map((c, i) => ({ id: c.id, n: i + 1, x: c.x ?? NaN, z: c.z ?? NaN, resolved: c.resolved, author: c.author, body: c.body })),
   });
 }
@@ -41,6 +42,8 @@ export function ShareModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  const openRef = useRef<string | null>(null);
+  openRef.current = open;
   const [comments, setComments] = useState<Record<string, ShareComment[]>>({});
   const shares = project.shares ?? [];
 
@@ -48,14 +51,14 @@ export function ShareModal({ onClose }: { onClose: () => void }) {
     try {
       const list = await listComments(id);
       setComments((c) => ({ ...c, [id]: list }));
-      if (open === id || !open) showPins(id, list);
+      if (openRef.current === id || (!openRef.current && id === shares[0]?.id)) showPins(id, list);
     } catch (e) {
       setError((e as Error).message);
     }
   };
   useEffect(() => {
     shares.forEach((s) => load(s.id));
-    return () => useStore.getState().setCloud({ comments: [], shareId: null });
+    // Las marcas se quedan en la escena al cerrar el panel (se quitan al cerrar el proyecto)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -155,7 +158,7 @@ export function ShareModal({ onClose }: { onClose: () => void }) {
             );
           })}
         </ul>
-        {shares.length > 0 && <p className="hint">Cierra este panel para ver las marcas de los comentarios en la escena (vista en planta).</p>}
+        {shares.length > 0 && <p className="hint">Al cerrar este panel, las marcas numeradas de los comentarios se quedan en la escena (se ven mejor en planta).</p>}
       </article>
     </div>
   );

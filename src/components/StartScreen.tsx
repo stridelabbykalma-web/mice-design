@@ -1,3 +1,5 @@
+import { EXAMPLE_ROOMS, exampleProject } from '../lib/examples';
+import { roomArea } from '../lib/outline';
 import { useEffect, useState } from 'react';
 import type { Project, SpaceMethod } from '../types';
 import { db, downloadBlob, importProject } from '../lib/db';
@@ -157,6 +159,27 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
       </header>
 
       <main className="start-main">
+        <h2>Salas de ejemplo</h2>
+        <p className="hint">Salas típicas de hotel con su evento ya montado por fases. Ábrelas para probar la app o como punto de partida.</p>
+        <div className="project-list">
+          {EXAMPLE_ROOMS.map((ex) => (
+            <div key={ex.id} className="project-card">
+              <button
+                className="project-open"
+                onClick={() => {
+                  const p = exampleProject(ex.id);
+                  db.saveProject(p);
+                  openProject(p);
+                }}
+              >
+                <strong>{ex.name}</strong>
+                <span>{ex.description}</span>
+                <span className="muted">Abrir ejemplo →</span>
+              </button>
+            </div>
+          ))}
+        </div>
+
         <h2>1. ¿Cómo quieres crear el espacio digital?</h2>
         <div className="method-grid">
           {METHODS.map((m) => (
@@ -277,7 +300,7 @@ function HotelSection() {
               >
                 <strong>{e.name}</strong>
                 <span>
-                  {m(e.room!.space.width, 1)} × {m(e.room!.space.depth, 1)} m · {m(e.room!.space.width * e.room!.space.depth, 0)} m²
+                  {m(e.room!.space.width, 1)} × {m(e.room!.space.depth, 1)} m · {m(roomArea(e.room!.space), 0)} m²
                   {e.room!.space.model ? ' · escaneo 3D' : ''}
                 </span>
                 <span className="muted">Nuevo evento en esta sala →</span>

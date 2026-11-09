@@ -22,9 +22,15 @@ describe('accesibilidad (silla de ruedas)', () => {
     const p = project(space(12, 8), [door(), ...row, fondo]);
     const r = checkAccessibility(p);
     expect(r.unreachable).toContain(fondo.id);
+    // Las demás mesas sí son accesibles: basta para el evento (1 plaza por cada 100 personas)
     const c = analyze(p).checks.find((x) => x.id === 'accesible');
-    expect(c?.severity).toBe('aviso');
-    expect(c?.itemIds).toContain(fondo.id);
+    expect(c?.severity).toBe('ok');
+    expect(c?.title).toContain('7 de 8');
+    // Si la única mesa queda aislada detrás de un tabique de pared a pared, se avisa
+    const solo = project(space(12, 8), [door(), item('tabique', 0, 0, { w: 12 }), fondo]);
+    const c2 = analyze(solo).checks.find((x) => x.id === 'accesible');
+    expect(c2?.severity).toBe('aviso');
+    expect(c2?.itemIds).toContain(fondo.id);
   });
 
   it('avisa si una mesa ocupa el espacio de giro delante de la puerta', () => {

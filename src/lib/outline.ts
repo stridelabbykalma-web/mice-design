@@ -58,6 +58,17 @@ export function distToOutline(p: P2, pts: P2[]) {
   return m;
 }
 
+/** ¿Se cruzan los segmentos ab y cd (cruce propio, sin contar extremos que se tocan)? */
+function segmentsCross(a: P2, b: P2, c: P2, d: P2) {
+  const o = (p: P2, q: P2, r: P2) => (q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x);
+  const e = 1e-9;
+  const d1 = o(a, b, c);
+  const d2 = o(a, b, d);
+  const d3 = o(c, d, a);
+  const d4 = o(c, d, b);
+  return ((d1 > e && d2 < -e) || (d1 < -e && d2 > e)) && ((d3 > e && d4 < -e) || (d3 < -e && d4 > e));
+}
+
 /** ¿Está el rectángulo dentro de la sala, a una distancia mínima de las paredes? */
 export function insideSpace(b: OBB, space: Space, margin = 0) {
   if (!space.outline || space.outline.length < 3) return insideRoom(b, space.width, space.depth, margin);
@@ -66,6 +77,9 @@ export function insideSpace(b: OBB, space: Space, margin = 0) {
   if (!cs.every((c) => pointInPolygon(c, pts))) return false;
   // Ninguna esquina de la sala puede quedar dentro del rectángulo (salas en L, entrantes)
   if (pts.some((v) => pointInPolygon(v, cs))) return false;
+  // Ni una pared puede atravesarlo (entrantes estrechos, salas en U)
+  for (let i = 0; i < cs.length; i++)
+    for (let j = 0; j < pts.length; j++) if (segmentsCross(cs[i], cs[(i + 1) % cs.length], pts[j], pts[(j + 1) % pts.length])) return false;
   return margin <= 0 || cs.every((c) => distToOutline(c, pts) >= margin - 1e-6);
 }
 

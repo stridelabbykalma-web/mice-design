@@ -8,7 +8,7 @@
 // No sustituye a un proyecto técnico ni a la licencia de actividad del hotel.
 
 import type { CatalogDef, Item, LayoutType, Project } from '../types';
-import { findDef, footprint, itemCapacity, itemDims } from '../catalog';
+import { findDef, footprint, footprintOffset, itemCapacity, itemDims } from '../catalog';
 import { OBB, obbOverlap, toWorld } from './geometry';
 import { insideSpace, roomArea } from './outline';
 import { checkAccessibility } from './accessibility';
@@ -36,13 +36,18 @@ export const DENSITY: Record<LayoutType | 'general', { m2: number; label: string
 const fmt = (v: number, d = 2) => v.toFixed(d).replace('.', ',');
 
 /** Elementos que pueden ir encima del escenario sin considerarse un solape. */
-const ON_STAGE = new Set(['atril', 'pantalla', 'planta', 'foco', 'uplight', 'silla', 'silla-conferencia', 'butaca', 'sofa']);
+const ON_STAGE = new Set(['mesa-escuela', 'atril', 'pantalla', 'planta', 'foco', 'uplight', 'silla', 'silla-conferencia', 'butaca', 'sofa']);
 
 const NON_BLOCKING = new Set(['cubierto', 'bajoplato', 'copa', 'vela', 'candelabro', 'centro-alto', 'centro-bajo', 'numero-mesa', 'menu-carta', 'camino-mesa', 'cuadro', 'espejo', 'alfombra', 'pista-baile', 'uplight', 'toma-corriente', 'ventana', 'puerta', 'salida']);
 
 export function obbOf(item: Item, def?: CatalogDef, withChairs = true): OBB {
-  const f = withChairs ? footprint(item, def) : itemDims(item, def);
-  return { x: item.x, z: item.z, w: f.w, d: f.d, rot: item.rot };
+  if (!withChairs) {
+    const f = itemDims(item, def);
+    return { x: item.x, z: item.z, w: f.w, d: f.d, rot: item.rot };
+  }
+  const f = footprint(item, def);
+  const c = toWorld(item.x, item.z, item.rot, 0, footprintOffset(item, def));
+  return { x: c.x, z: c.z, w: f.w, d: f.d, rot: item.rot };
 }
 
 export function isExit(type: string) {
@@ -247,24 +252,35 @@ function analyzeUncached(project: Project, lang: 'es' | 'en'): Analysis {
     }
   }
 
-  // 7. Accesibilidad (silla de ruedas): recorrido de 1,20 m hasta cada mesa y giro en la puerta
+  // 7. Accesibilidad (silla de ruedas): recorrido de 1,20 m desde la puerta y giro en la puerta.
+  // No hace falta llegar a todas las mesas: se piden plazas accesibles para 1 de cada 100
+  // personas (criterio de plazas reservadas del CTE DB-SUA 9), como mínimo una mesa.
   const acc = checkAccessibility(project);
   if (acc.hasDoor && acc.tables > 0) {
     const nU = acc.unreachable.length;
+    const reachable = acc.tables - nU;
+    const needed = Math.min(acc.tables, Math.max(1, Math.ceil(Math.max(occupancy, 1) / 100)));
     checks.push(
-      nU
+      reachable < needed
         ? {
             id: 'accesible',
             severity: 'aviso',
-            title: L(`${nU} de ${acc.tables} mesas sin recorrido accesible desde la entrada`, `${nU} of ${acc.tables} tables without an accessible route from the entrance`),
-            detail: 'Una silla de ruedas necesita un paso libre de 1,20 m (CTE DB-SUA 9) desde la puerta hasta la mesa. Abre un pasillo o reserva para estas personas otra mesa.',
+            title: L(
+              `Solo ${reachable} de ${acc.tables} mesas con recorrido accesible (se necesitan ${needed})`,
+              `Only ${reachable} of ${acc.tables} tables with an accessible route (${needed} needed)`,
+            ),
+            detail: 'Una silla de ruedas necesita un paso libre de 1,20 m (CTE DB-SUA 9) desde la puerta hasta su mesa. Abre un pasillo hasta las mesas marcadas.',
             itemIds: acc.unreachable,
           }
         : {
             id: 'accesible',
             severity: 'ok',
-            title: L('Todas las mesas tienen recorrido accesible (1,20 m)', 'All tables have an accessible route (1.20 m)'),
-            detail: 'Desde la entrada se llega a cada mesa por un paso libre de al menos 1,20 m (CTE DB-SUA 9).',
+            title: nU
+              ? L(`${reachable} de ${acc.tables} mesas con recorrido accesible (1,20 m)`, `${reachable} of ${acc.tables} tables with an accessible route (1.20 m)`)
+              : L('Todas las mesas tienen recorrido accesible (1,20 m)', 'All tables have an accessible route (1.20 m)'),
+            detail: nU
+              ? `Suficiente para este evento (al menos ${needed}): sienta a las personas en silla de ruedas en las mesas con paso libre de 1,20 m desde la entrada, las más cercanas a los pasillos.`
+              : 'Desde la entrada se llega a cada mesa por un paso libre de al menos 1,20 m (CTE DB-SUA 9).',
           },
     );
   }

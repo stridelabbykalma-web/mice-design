@@ -65,9 +65,12 @@ export function guestsFromCsv(text: string, project: Project): { guests: Guest[]
   const rows = parseCsv(text);
   if (!rows.length) return { guests: [], withTable: 0 };
   const h = rows[0].map(norm);
-  const find = (...keys: string[]) => h.findIndex((c) => keys.some((k) => c.includes(k)));
-  let iName = find('nombre', 'name', 'invitado', 'guest');
-  const iSurname = find('apellido', 'surname', 'last name');
+  // Una celda es cabecera si empieza por la palabra clave («Nombre», «Mesa nº», «Dietas»), no
+  // si la contiene: «Ana Mesa» es una invitada y «Surname» no es la columna del nombre.
+  const find = (...keys: string[]) => h.findIndex((c, i) => i !== iSurname && c.length <= 30 && keys.some((k) => c === k || c.startsWith(k)));
+  let iSurname = -1;
+  iSurname = find('apellido', 'surname', 'last name', 'lastname');
+  let iName = find('nombre', 'name', 'first name', 'firstname', 'invitado', 'guest');
   const iGroup = find('grupo', 'empresa', 'familia', 'group', 'company');
   const iTable = find('mesa', 'table');
   const iDiet = find('dieta', 'alergia', 'diet', 'allerg', 'menu');

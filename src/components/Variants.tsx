@@ -1,3 +1,4 @@
+import { roomArea } from '../lib/outline';
 import { useState } from 'react';
 import { syncedVariants, useStore } from '../store';
 import type { LayoutType, Project, Variant, ViewMode } from '../types';
@@ -186,7 +187,7 @@ export function CompareModal({ capture, onClose }: { capture: (view: ViewMode) =
       <article className="compare-sheet">
         <h1>{T('Comparación de propuestas')}</h1>
         <p className="muted">
-          {project.name} · {project.space.name} ({m(project.space.width * project.space.depth, 0)} m²)
+          {project.name} · {project.space.name} ({m(roomArea(project.space), 0)} m²)
         </p>
         <div className="compare-scroll">
           <table className="compare-table">

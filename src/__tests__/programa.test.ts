@@ -13,7 +13,7 @@ describe('programa del evento por fases', () => {
     expect(program.phases[1].start).toBe('09:45');
     const inaug = variants[0];
     expect(inaug.layout).toBe('teatro');
-    expect(inaug.items.some((i) => i.type === 'mesa-escuela' && i.rot === Math.PI)).toBe(true); // presidencia
+    expect(inaug.items.some((i) => i.type === 'mesa-escuela' && i.rot === 180)).toBe(true); // presidencia
     expect(inaug.items.filter((i) => i.type === 'puerta').length).toBe(1);
     // Plenaria: se retira la presidencia y se mantiene el resto
     const plen = variants[1];

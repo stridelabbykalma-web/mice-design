@@ -47,6 +47,10 @@ Cada herramienta aporta lo que mejor hace: **las medidas salen del plano, el asp
 
 Para splats en las gafas conviene que el archivo no pase de ~1 millón de puntos (Scaniverse permite elegir la calidad al exportar).
 
+## Salas de ejemplo
+
+En la pantalla de inicio hay seis salas típicas de hotel, cada una con su arquitectura (puertas, salidas, ventanas, columnas) y un evento ya montado por fases: sala de consejo (9 × 6 m, reunión), salón de congresos alargado (30 × 14 m, congreso con cena de gala), salón en L (convención), gran salón con ocho columnas (gala de 300), salón ochavado (boda) y terraza exterior (presentación de producto). Sirven para probar la app sin planos y son también el banco de pruebas automático (`src/__tests__/salas-ejemplo.test.ts`): en cada sala se generan los seis montajes con y sin escenario para 0, 10, 60 y 200 personas y los diez tipos de evento, y se comprueba que nada queda fuera de la sala, que no hay errores de seguridad y que las horas del programa van en orden.
+
 ## Programa del evento por fases
 
 Panel *Programa*: se elige el tipo de evento (reunión, jornada, congreso, convención, presentación de producto, rueda de prensa, gala, workshop B2B, incentivo o boda) y la app crea sus fases típicas con hora y duración (ver `docs/estructura-eventos-mice.md`). Cada fase en la sala es un montaje propio (por ejemplo: inauguración en teatro con mesa de presidencia → plenaria sin presidencia → cena de gala en banquete con escenario) y las fases fuera de la sala (cóctel, pausa café) indican dónde esperan los asistentes. Entre fases calcula el cambio de montaje (qué se retira y qué se monta, minutos con el personal indicado y tiempo disponible) y avisa si no da tiempo o si en alguna fase faltan asientos. En la vista del cliente y en las gafas se pasa de una fase a otra. Los tiempos por pieza son una estimación orientativa (`unitMinutes` en `src/lib/program.ts`).
@@ -80,7 +84,7 @@ El ejemplo *Gemelo digital de una sala* usa un **escaneo simulado** (`src/assets
   - *Realidad mixta*: se ve la sala real y encima el montaje. Se alinea marcando con el mando o pellizcando con la mano las dos esquinas del frente; si la distancia real no coincide con la de la app, avisa de la diferencia en centímetros.
   - *Realidad virtual*: el gemelo digital completo; se camina o se teletransporta apuntando al suelo.
   - **Medir esta sala con las gafas** (flujo gafas → PC → gafas):
-    1. En la app, en las gafas (emparejadas como «Diseña y edita»): *Gafas → 📏 Medir esta sala*. Si las gafas no tienen esa sala escaneada, la app abre su escaneo (el de *Configuración del espacio*): se camina mirando las paredes, el suelo y el techo, y al terminar se vuelve solo a la app. El botón lateral del mando repite el escaneo.
+    1. En la app, en las gafas (emparejadas con la opción «Móvil o gafas que editan»): *Gafas → 📏 Medir esta sala*. Si las gafas no tienen esa sala escaneada, la app abre su escaneo (el de *Configuración del espacio*): se camina mirando las paredes, el suelo y el techo, y al terminar se vuelve solo a la app. El botón lateral del mando repite el escaneo.
     2. Las paredes detectadas se ven en verde con sus medidas; con el gatillo se guardan en el proyecto (medidas, forma, altura, puertas y ventanas). Si el escaneo no es posible o se cancela (salones muy grandes), se marcan las esquinas en el suelo con el mando y se cierra volviendo a la primera.
     3. En el ordenador se diseña el montaje sobre esa sala (se sincroniza solo).
     4. De vuelta en la sala, *Realidad mixta*: el montaje aparece colocado sin marcar nada, porque las gafas guardan un anclaje en la sala. Si no lo tienen (otras gafas, o la sala viene del plano o del iPhone), la app encaja la sala del proyecto con las paredes que detectan; en salas simétricas desempata con las puertas y, si sigue habiendo duda, pide marcar las dos esquinas.

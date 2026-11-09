@@ -1,3 +1,4 @@
+import { inwardNormal } from '../lib/outline';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { Pt, planeMeter, rectify } from '../lib/perspective';
@@ -110,6 +111,24 @@ export function PhotoMeasureHost() {
     const blob = await rectify(img, wall, outW, Math.max(64, Math.round(outW / aspect)));
     const id = await addAsset(new File([blob], `${side}.jpg`, { type: 'image/jpeg' }), `${side}.jpg`);
     const sp = useStore.getState().project!.space;
+    if (sp.outline && sp.outline.length >= 3) {
+      // Sala con forma: la foto va al tramo más largo de ese lado (norte = frente, z negativa)
+      const want = { norte: { x: 0, z: 1 }, sur: { x: 0, z: -1 }, oeste: { x: 1, z: 0 }, este: { x: -1, z: 0 } }[side];
+      let best = -1;
+      let bestLen = 0;
+      sp.outline.forEach((a, i) => {
+        const b = sp.outline![(i + 1) % sp.outline!.length];
+        const n = inwardNormal(sp.outline!, i);
+        const len = Math.hypot(b.x - a.x, b.z - a.z);
+        if (n.x * want.x + n.z * want.z > 0.7 && len > bestLen) {
+          best = i;
+          bestLen = len;
+        }
+      });
+      if (best < 0) return setMsg('Esta sala no tiene una pared en ese lado: elige otro.');
+      updateSpace({ edgePhotos: { ...(sp.edgePhotos ?? {}), [`e${best}`]: { assetId: id } }, showWalls: sp.model ? sp.showWalls : true });
+      return setMsg(`Foto aplicada a la pared ${best + 1} (la más larga de ese lado).`);
+    }
     updateSpace({ wallPhotos: { ...(sp.wallPhotos ?? {}), [side]: { assetId: id } }, showWalls: sp.model ? sp.showWalls : true });
     setMsg('Foto aplicada a la pared.');
   };

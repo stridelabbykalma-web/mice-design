@@ -28,7 +28,7 @@ import {
   workOffline,
 } from '../lib/auth';
 import { copyLocalWithoutAccount, countLocalWithoutAccount, db } from '../lib/db';
-import { acceptRemote, syncNow, useSync } from '../lib/sync';
+import { acceptRemote, keepMine, syncNow, useSync } from '../lib/sync';
 import { useStore } from '../store';
 import { ConfirmButton, Field } from './ui';
 
@@ -290,7 +290,7 @@ export function DeviceCodeModal({ project, onClose }: { project?: { id: string; 
             🥽 Gafas (solo ver, en directo)
           </button>
           <button className={role === 'editor' ? 'active' : ''} onClick={() => setRole('editor')}>
-            📱 Móvil (fotos y cambios)
+            📱 Móvil o gafas que editan (fotos, medir la sala)
           </button>
         </div>
         {code ? (
@@ -541,10 +541,7 @@ export function SyncIndicator() {
           </button>
           <button
             className="link"
-            onClick={() => {
-              useSync.setState({ conflict: false });
-              useStore.getState().patchProject({});
-            }}
+            onClick={keepMine}
           >
             Mantener los míos
           </button>

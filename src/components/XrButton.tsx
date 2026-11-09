@@ -40,7 +40,7 @@ export function XrButton() {
           </button>
         )}
         {supportsAR && liveViewer && (
-          <p className="hint">Para medir la sala con las gafas, emparéjalas con permiso «Diseña y edita» (el medido se guarda en el proyecto).</p>
+          <p className="hint">Para medir la sala con las gafas, emparéjalas con la opción «Móvil o gafas que editan» (la medida se guarda en el proyecto).</p>
         )}
         {supportsVR && (
           <button disabled={!!mode} onClick={(e) => enter('vr', e)}>

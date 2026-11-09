@@ -100,6 +100,18 @@ export function footprint(item: Item, def?: CatalogDef) {
 }
 
 /**
+ * Desplazamiento (en el eje Z local de la mesa) del centro de la huella con sillas respecto
+ * al centro de la mesa: las mesas con sillas en un solo lado ocupan más hacia ese lado.
+ */
+export function footprintOffset(item: Item, def?: CatalogDef) {
+  const chairs = item.chairs ?? def?.chairs ?? 0;
+  if (!def || chairs === 0 || isRoundTable(item.type)) return 0;
+  const { w, d } = itemDims(item, def);
+  const layout = rectChairLayout(item.type, w, d, chairs);
+  return ((layout.back ? 0.5 : 0) - (layout.front ? 0.5 : 0)) / 2;
+}
+
+/**
  * Reparto de sillas alrededor de una mesa rectangular.
  * La mesa de escuela solo lleva sillas en un lado (mirando al frente, -Z → +Z).
  */
@@ -118,6 +130,12 @@ export function rectChairLayout(type: string, w: number, _d: number, chairs: num
 /** Personas que admite un elemento (plazas sentadas o de pie). */
 export function itemCapacity(item: Item, def?: CatalogDef) {
   if (!def) return { seated: 0, standing: 0 };
-  const chairs = item.chairs ?? def.chairs ?? 0;
+  let chairs = item.chairs ?? def.chairs ?? 0;
+  // En mesas rectangulares solo cuentan las sillas que caben (las que se dibujan)
+  if (chairs > 0 && !isRoundTable(item.type)) {
+    const { w, d } = itemDims(item, def);
+    const l = rectChairLayout(item.type, w, d, chairs);
+    chairs = l.back + l.front + l.ends;
+  }
   return { seated: chairs + (def.seats ?? 0), standing: def.standing ?? 0 };
 }

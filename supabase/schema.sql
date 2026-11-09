@@ -237,7 +237,8 @@ $$;
 create or replace function public.hotel_remove_member(p_hotel uuid, p_user uuid)
 returns void language plpgsql security definer set search_path = public as $$
 begin
-  if public.hotel_role(p_hotel) <> 'admin' and p_user <> auth.uid() then raise exception 'Solo un administrador puede quitar miembros'; end if;
+  -- coalesce: quien no pertenece al hotel tiene rol NULL y, sin él, la comparación no impediría nada
+  if coalesce(public.hotel_role(p_hotel), '') <> 'admin' and p_user <> auth.uid() then raise exception 'Solo un administrador puede quitar miembros'; end if;
   delete from public.hotel_members where hotel_id = p_hotel and user_id = p_user;
 end $$;
 

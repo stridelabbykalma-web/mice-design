@@ -62,8 +62,10 @@ export function NumberInput({
           if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             e.preventDefault();
-            const v = value + (e.key === 'ArrowUp' ? step : -step);
-            onChange(Math.round(v * 1000) / 1000);
+            let v = Math.round((value + (e.key === 'ArrowUp' ? step : -step)) * 1000) / 1000;
+            if (min !== undefined) v = Math.max(min, v);
+            if (max !== undefined) v = Math.min(max, v);
+            if (v !== value) onChange(v);
           }
           e.stopPropagation();
         }}

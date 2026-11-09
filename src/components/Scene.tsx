@@ -990,7 +990,15 @@ function Interaction({ wrap }: { wrap: React.RefObject<HTMLDivElement> }) {
         // Mide sobre el modelo escaneado si existe; si no, sobre el suelo.
         const r = el.getBoundingClientRect();
         raycaster.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
-        const hits = raycaster.intersectObjects(scene.children, true).filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
+        const solid = (o: THREE.Object3D) => {
+          const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+          const mats = Array.isArray(m) ? m : m ? [m] : [];
+          // Ni paredes atenuadas, ni marcas, ni ayudas de selección (sin prueba de profundidad)
+          if (mats.some((x) => (x.transparent && x.opacity < 0.5) || !x.depthTest)) return false;
+          for (let q: THREE.Object3D | null = o; q; q = q.parent) if (!q.visible) return false;
+          return true;
+        };
+        const hits = raycaster.intersectObjects(scene.children, true).filter((h) => (h.object as THREE.Mesh).isMesh && solid(h.object));
         const p = hits[0]?.point ?? floorPoint(e, el, camera, raycaster);
         if (p) st.addMeasurePoint({ x: p.x, y: p.y, z: p.z });
       } else {
@@ -1075,7 +1083,10 @@ function PlanCamera({ space, wrap }: { space: Space; wrap: React.RefObject<HTMLD
 
 function Cameras({ space, view, wrap }: { space: Space; view: string; wrap: React.RefObject<HTMLDivElement> }) {
   const dragging = useInteraction((s) => s.dragging);
+  const xr = useXR((s) => s.mode);
   const maxDim = Math.max(space.width, space.depth);
+  // Con las gafas puestas manda su cámara: los controles del ratón la moverían en cada fotograma
+  if (xr) return <PerspectiveCamera makeDefault fov={70} near={0.05} far={500} />;
   if (view === 'paseo')
     return (
       <>

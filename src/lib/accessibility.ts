@@ -6,8 +6,8 @@
 // (medio pasillo) de cualquier mueble o pared y se busca el camino desde la puerta.
 
 import type { Item, Project } from '../types';
-import { findDef, footprint, isRoundTable } from '../catalog';
-import { corners } from './geometry';
+import { findDef, footprint, footprintOffset, isRoundTable } from '../catalog';
+import { corners, toWorld } from './geometry';
 import { pointInPolygon, roomOutline, distToOutline } from './outline';
 import { isDecorDef, isTableDef } from './tables';
 
@@ -28,7 +28,8 @@ function shapeOf(it: Item, project: Project): Shape | null {
   if (!def || NON_OBSTACLE.has(it.type) || isDecorDef(def)) return null;
   const f = footprint(it, def);
   const round = isRoundTable(it.type) || (!!def.modelAssetId && def.w === def.d && def.chairs !== undefined);
-  return { item: it, round, r: f.w / 2, poly: corners({ x: it.x, z: it.z, w: f.w, d: f.d, rot: it.rot }) };
+  const c = toWorld(it.x, it.z, it.rot, 0, footprintOffset(it, def));
+  return { item: it, round, r: f.w / 2, poly: corners({ x: c.x, z: c.z, w: f.w, d: f.d, rot: it.rot }) };
 }
 
 /** Distancia de un punto a la huella (0 si está dentro). */
@@ -51,7 +52,9 @@ export function checkAccessibility(project: Project): AccessResult {
   const { space } = project;
   const door = project.items.find((i) => i.type === 'puerta') ?? project.items.find((i) => i.type === 'salida');
   const shapes = project.items.map((it) => shapeOf(it, project)).filter((s): s is Shape => !!s);
-  const tables = shapes.filter((s) => isTableDef(findDef(s.item.type, project.customCatalog)));
+  // Las mesas que están sobre el escenario (presidencia) no necesitan recorrido accesible propio
+  const stages = shapes.filter((s) => s.item.type === 'escenario');
+  const tables = shapes.filter((s) => isTableDef(findDef(s.item.type, project.customCatalog)) && !stages.some((st) => pointInPolygon({ x: s.item.x, z: s.item.z }, st.poly)));
   if (!door || space.outdoor) return { unreachable: [], tables: tables.length, doorBlockers: [], hasDoor: !!door };
   const noTables = tables.length === 0;
 

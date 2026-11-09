@@ -10,6 +10,7 @@
 - [ ] Probar «Medir esta sala con las gafas» en una sala real: comparar las medidas con el plano, comprobar que al volver a entrar el montaje aparece en su sitio (anclaje) y hasta qué tamaño de salón llega el escaneo de la Quest 3S.
 
 ### Nube (Supabase)
+- [ ] **Seguridad:** volver a ejecutar en Supabase (*SQL Editor*) la función `hotel_remove_member` de `supabase/schema.sql`: la versión instalada deja que alguien que no pertenece al hotel quite a sus miembros.
 - [ ] Revocar la clave secreta `sb_secret_…` que se compartió en el chat y generar otra (no hace falta en la app).
 - [x] Ejecutar `supabase/schema.sql` y poner la *Project URL* en `src/lib/cloud.ts`.
 - [ ] En Supabase: *Authentication → Sign In / Providers*: activar «Allow anonymous sign-ins» (gafas) y decidir si se pide confirmar el correo.
@@ -69,3 +70,18 @@ Descartadas o aplazadas:
 
 - Opción de pasillo accesible de 1,20 m en los montajes automáticos.
 - Medición con realidad aumentada en Android (WebXR) y oclusión por profundidad en Quest 3.
+
+### Revisión a fondo (noviembre 2026): corregido
+- Sincronización: un guardado pendiente ya no pisa la versión que llega de otro dispositivo; cerrar un proyecto sin tocarlo no cambia su fecha; un proyecto que falla al subir no bloquea los demás; dos guardados en el mismo instante acaban en la misma versión en los dos dispositivos; las imágenes de las propuestas no activas también se suben.
+- Propuestas: renombrar la única propuesta ya no congela su montaje.
+- Montajes: escenario solo si cabe (antes dejaba vacías las salas pequeñas); la U se alarga por la base y se desplaza si una puerta estorba; banquete repartido por toda la sala; montaje ajustado (márgenes mínimos) cuando no caben las personas pedidas; la pista de baile siempre dentro de la sala.
+- Programa: mesa de presidencia girada hacia el público; horas habituales de comida y cena; programas que pasan de medianoche; abrir la pista de baile con los invitados en la sala no cuenta como cambio imposible; si la U no da para el grupo se propone imperial, escuela o teatro.
+- Seguridad y accesibilidad: las mesas de un solo lado ya no dan solapes falsos; una pared que atraviesa un mueble cuenta como fuera de la sala; la accesibilidad pide plazas accesibles para 1 de cada 100 personas en vez de exigir paso de 1,20 m hasta todas las mesas.
+- Interfaz: flechas de los campos numéricos respetan mínimos y máximos; mover o girar una mesa desde sus campos arrastra su decoración; color y texto se pueden deshacer; las marcas de los comentarios del cliente se ven al cerrar el panel; la herramienta de medir ignora paredes atenuadas; terminar un contorno dibujado no descoloca el plano ni los muebles; fotos de pared en salas con forma; m² reales en salas no rectangulares; invitados CSV con «Surname, Name» y listas sin cabecera.
+- Gafas: los controles del ratón ya no mueven la cámara durante la sesión.
+
+### Revisión a fondo: pendiente (no corregido)
+- Sincronización: usar un contador del servidor en vez de fechas del dispositivo; reintentar los borrados hechos sin conexión; dos pestañas abiertas pueden cerrar la sesión al renovar el token; avisar si el navegador se queda sin espacio al guardar.
+- Presidencia de 5 en un escenario de menos de 5,4 m: se sientan menos y no se avisa.
+- Mesas rectangulares escaneadas: cuentan sillas en las cabeceras que no se dibujan.
+- Memoria: los textos de tótems y photocalls y el brillo del escaneo crean texturas que no se liberan hasta recargar.

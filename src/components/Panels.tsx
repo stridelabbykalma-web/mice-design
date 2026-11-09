@@ -430,6 +430,10 @@ export function PropertiesPanel() {
   const dims = itemDims(first, def);
   const ids = items.map((i) => i.id);
   const set = (fn: (it: Item) => Partial<Item>) => updateItems(ids, fn);
+  /** Mover una mesa desde los campos X/Z arrastra también lo que lleva encima. */
+  const moveWithDecor = (dx: number, dz: number) => updateItems(useStore.getState().withDecor(ids), (it) => ({ x: Math.round((it.x + dx) * 100) / 100, z: Math.round((it.z + dz) * 100) / 100 }));
+  /** Punto de deshacer al empezar a cambiar un color o un texto (no en cada tecla). */
+  const mark = () => useStore.getState().checkpoint();
   const sameType = items.every((i) => i.type === first.type);
   const chairDefs = [...project.customCatalog, ...BASE_CATALOG].filter((d) => d.seats === 1);
 
@@ -444,13 +448,13 @@ export function PropertiesPanel() {
       {items.length === 1 && (
         <div className="grid3">
           <Field label="X">
-            <NumberInput value={first.x} onChange={(x) => set(() => ({ x }))} suffix="m" />
+            <NumberInput value={first.x} onChange={(x) => moveWithDecor(x - first.x, 0)} suffix="m" />
           </Field>
           <Field label="Z">
-            <NumberInput value={first.z} onChange={(z) => set(() => ({ z }))} suffix="m" />
+            <NumberInput value={first.z} onChange={(z) => moveWithDecor(0, z - first.z)} suffix="m" />
           </Field>
           <Field label="Giro">
-            <NumberInput value={first.rot} step={15} onChange={(rot) => set(() => ({ rot }))} suffix="°" />
+            <NumberInput value={first.rot} step={15} onChange={(rot) => useStore.getState().rotateItems(ids, rot - first.rot)} suffix="°" />
           </Field>
         </div>
       )}
@@ -511,7 +515,7 @@ export function PropertiesPanel() {
       )}
       {sameType && def && !def.modelAssetId && def.category !== 'arquitectura' && (
         <Field label={def.category === 'iluminacion' ? 'Color de la luz' : def.chairs !== undefined ? 'Color de la mantelería' : 'Color'}>
-          <input type="color" value={first.color ?? def.color} onChange={(e) => updateItems(ids, () => ({ color: e.target.value }), false)} />
+          <input type="color" value={first.color ?? def.color} onFocus={mark} onChange={(e) => updateItems(ids, () => ({ color: e.target.value }), false)} />
         </Field>
       )}
       {sameType && def?.chairs !== undefined && (
@@ -537,9 +541,9 @@ export function PropertiesPanel() {
       {items.length === 1 && (def?.chairs !== undefined || ['photocall', 'totem', 'atril-bienvenida'].includes(first.type)) && (
         <Field label={def?.chairs !== undefined ? 'Nombre / número de mesa' : 'Texto'}>
           {first.type === 'totem' || first.type === 'atril-bienvenida' ? (
-            <textarea rows={2} value={first.label ?? ''} onChange={(e) => updateItems(ids, () => ({ label: e.target.value }), false)} onKeyDown={(e) => e.stopPropagation()} />
+            <textarea rows={2} value={first.label ?? ''} onFocus={mark} onChange={(e) => updateItems(ids, () => ({ label: e.target.value }), false)} onKeyDown={(e) => e.stopPropagation()} />
           ) : (
-            <input value={first.label ?? ''} onChange={(e) => updateItems(ids, () => ({ label: e.target.value }), false)} onKeyDown={(e) => e.stopPropagation()} />
+            <input value={first.label ?? ''} onFocus={mark} onChange={(e) => updateItems(ids, () => ({ label: e.target.value }), false)} onKeyDown={(e) => e.stopPropagation()} />
           )}
         </Field>
       )}

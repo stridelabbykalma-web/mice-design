@@ -142,7 +142,14 @@ export default function Survey({ onBack }: { onBack: () => void }) {
   };
 
   const save = () => {
-    const next = [...all.filter((r) => r.id !== cur.id), cur];
+    // Si quedaba una tarea cronometrándose, se cierra con el tiempo transcurrido
+    let done = cur;
+    if (running !== null) {
+      const elapsed = (Date.now() - startRef.current) / 1000;
+      done = { ...cur, tasks: cur.tasks.map((t, k) => (k === running ? { ...t, time: Math.round((t.time + elapsed) * 10) / 10 } : t)) };
+      setRunning(null);
+    }
+    const next = [...all.filter((r) => r.id !== done.id), done];
     setAll(next);
     persist(next);
     setCur(blank(tasks));

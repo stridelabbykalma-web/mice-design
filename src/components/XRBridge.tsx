@@ -212,7 +212,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       if (st.mode === 'vr') {
         // Teletransporte: el punto señalado queda bajo los pies
         const head = new THREE.Vector3();
-        camera.getWorldPosition(head);
+        (gl.xr.isPresenting ? gl.xr.getCamera() : camera).getWorldPosition(head);
         g.position.x += head.x - p.x;
         g.position.z += head.z - p.z;
         return;
@@ -450,8 +450,8 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
     if (panel.mesh.visible) {
       const head = new THREE.Vector3();
       const fwd = new THREE.Vector3();
-      camera.getWorldPosition(head);
-      camera.getWorldDirection(fwd);
+      (gl.xr.isPresenting ? gl.xr.getCamera() : camera).getWorldPosition(head);
+      (gl.xr.isPresenting ? gl.xr.getCamera() : camera).getWorldDirection(fwd);
       fwd.y = 0;
       fwd.normalize();
       const target = head.clone().addScaledVector(fwd, 1.2).setY(head.y - 0.15);

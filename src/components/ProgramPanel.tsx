@@ -1,7 +1,7 @@
 // Programa del evento por fases, con los cambios de montaje entre fases.
 
 import { useMemo, useState } from 'react';
-import { useStore } from '../store';
+import { syncedVariants, useStore } from '../store';
 import { EVENT_KINDS, QUICK, type EventKind, buildProgram, changeovers, fmtTime, hasDesign, layoutName, phaseEnd, phaseWarnings } from '../lib/program';
 import { ConfirmButton, Field, NumberInput } from './ui';
 
@@ -89,7 +89,8 @@ function ProgramView() {
   const prog = project.program!;
   const cos = useMemo(() => changeovers(project), [project]);
   const warns = useMemo(() => phaseWarnings(project), [project]);
-  const vs = project.variants ?? [];
+  // Con la fase en pantalla al día (su montaje vive en el proyecto, no en la lista)
+  const vs = project.variants?.length ? syncedVariants(project) : [];
 
   const setPhases = (phases: typeof prog.phases) => st.patchProject({ program: { ...prog, phases } });
   /** Cambiar la duración de una fase desplaza las siguientes. */
@@ -176,7 +177,12 @@ function ChangeoverCard({ co }: { co: ReturnType<typeof changeovers>[number] }) 
   return (
     <details className={`changeover ${co.ok ? 'ok' : 'bad'}`}>
       <summary>
-        {co.ok ? '✓' : '⚠'} {co.minutes <= QUICK && co.available < co.minutes ? `Cambio rápido (~${co.minutes} min), sobre la marcha` : `Cambio de montaje: ~${co.minutes} min · disponibles ${Math.max(0, co.available)} min`}
+        {co.ok ? '✓' : '⚠'}{' '}
+        {co.minutes <= QUICK && co.available < co.minutes
+          ? `Cambio rápido (~${co.minutes} min), sobre la marcha`
+          : co.live
+            ? `Se abre la pista con los invitados en la sala (~${co.minutes} min)`
+            : `Cambio de montaje: ~${co.minutes} min · disponibles ${Math.max(0, co.available)} min`}
       </summary>
       {co.removed.length > 0 && <p>Retirar: {list(co.removed)}</p>}
       {co.added.length > 0 && <p>Montar: {list(co.added)}</p>}
@@ -187,7 +193,7 @@ function ChangeoverCard({ co }: { co: ReturnType<typeof changeovers>[number] }) 
           montaje preparado de antemano.
         </p>
       )}
-      {co.ok && !co.guestsOut && co.minutes > QUICK && <p className="warn-text">Los asistentes no tienen otro sitio mientras se cambia: prevé una zona de espera.</p>}
+      {co.ok && !co.guestsOut && !co.live && co.minutes > QUICK && <p className="warn-text">Los asistentes no tienen otro sitio mientras se cambia: prevé una zona de espera.</p>}
     </details>
   );
 }

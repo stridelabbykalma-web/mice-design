@@ -90,7 +90,7 @@ function useKeyboard() {
         e.preventDefault();
         return st.removeItems(sel);
       }
-      const rot = { q: -15, e: 15, r: 90 }[e.key.toLowerCase()];
+      const rot = e.ctrlKey || e.metaKey || e.altKey ? undefined : { q: -15, e: 15, r: 90 }[e.key.toLowerCase()];
       if (rot) return st.rotateItems(sel, rot);
       const step = e.shiftKey ? 0.5 : 0.1;
       const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
@@ -377,7 +377,17 @@ function Editor() {
                   className="link"
                   onClick={() => {
                     const n = normalizeOutline(st.drawPts);
-                    st.updateSpace({ outline: n.outline, width: n.width, depth: n.depth });
+                    // El contorno se centra en el origen: el plano, el escaneo y los muebles se
+                    // desplazan lo mismo para que todo siga en su sitio.
+                    const xs = st.drawPts.map((q) => q.x);
+                    const zs = st.drawPts.map((q) => q.z);
+                    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+                    const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+                    const sp = st.project!.space;
+                    const shift = <T extends { offsetX: number; offsetZ: number }>(o?: T) => (o ? { ...o, offsetX: o.offsetX - cx, offsetZ: o.offsetZ - cz } : o);
+                    st.checkpoint();
+                    st.patchProject({ items: st.project!.items.map((i) => ({ ...i, x: Math.round((i.x - cx) * 100) / 100, z: Math.round((i.z - cz) * 100) / 100 })) });
+                    st.updateSpace({ outline: n.outline, width: n.width, depth: n.depth, underlay: shift(sp.underlay), model: shift(sp.model), splat: shift(sp.splat) }, false);
                     st.setDrawPts([]);
                     st.setTool('select');
                   }}

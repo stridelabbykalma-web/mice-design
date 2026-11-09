@@ -137,19 +137,32 @@ export function newProject(space: Space, name: string, hotel: string): Project {
  */
 export function syncedVariants(p: Project): Variant[] {
   if (!p.variants?.length) return [{ id: p.activeVariant ?? 'v_a', name: 'Propuesta A', items: p.items, lighting: p.lighting, layout: p.event.layout, guests: p.guests }];
-  return p.variants.map((v) => (v.id === p.activeVariant ? { ...v, items: p.items, lighting: p.lighting, layout: p.event.layout, guests: p.guests } : v));
+  // Proyectos sin propuesta activa anotada: la activa es la primera
+  const active = p.activeVariant ?? p.variants[0].id;
+  return p.variants.map((v) => (v.id === active ? { ...v, items: p.items, lighting: p.lighting, layout: p.event.layout, guests: p.guests } : v));
 }
 
 let saveTimer: number | undefined;
+/** Hay cambios en memoria que todavía no se han guardado (el autoguardado espera 400 ms). */
+let dirty = false;
+export const hasPendingSave = () => dirty;
+/** Fecha de guardado: siempre posterior a la versión anterior, aunque otro dispositivo tenga el reloj adelantado. */
+const stamp = (p: Project) => Math.max(Date.now(), (p.updatedAt ?? 0) + 1);
+
 function scheduleSave(p: Project | null) {
   // Una propuesta abierta desde un enlace no se guarda en el navegador del cliente
   if (!p || useStore.getState().readOnly) return;
+  dirty = true;
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    const updated = { ...p, updatedAt: Date.now() };
+    // Se guarda lo que hay ahora en pantalla (no la copia de cuando se programó el guardado)
+    const cur = useStore.getState().project;
+    const latest = cur?.id === p.id ? cur : p;
+    const updated = { ...latest, updatedAt: stamp(latest), rev: uid('r_') };
+    dirty = false;
     db.saveProject(updated).then(() => window.dispatchEvent(new Event('mice-saved')));
     // El proyecto en memoria lleva la misma fecha que el guardado (para la sincronización)
-    if (useStore.getState().project?.id === p.id) useStore.setState({ project: { ...useStore.getState().project!, updatedAt: updated.updatedAt } });
+    if (cur?.id === p.id) useStore.setState({ project: { ...useStore.getState().project!, updatedAt: updated.updatedAt, rev: updated.rev } });
   }, 400);
 }
 
@@ -181,7 +194,12 @@ export const useStore = create<State>((set, get) => {
     pinMode: false,
     pendingPin: null,
     setCloud: (patch) => set(patch),
-    replaceProject: (p) => set({ project: p, selection: [], past: [], future: [] }),
+    replaceProject: (p) => {
+      // Llega la versión de otro dispositivo: se cancela el guardado pendiente de la anterior
+      window.clearTimeout(saveTimer);
+      dirty = false;
+      set({ project: p, selection: [], past: [], future: [] });
+    },
     setDrawPts: (drawPts) => set({ drawPts }),
     past: [],
     future: [],
@@ -204,8 +222,14 @@ export const useStore = create<State>((set, get) => {
       }),
     closeProject: () => {
       const p = get().project;
-      if (p && !get().readOnly) db.saveProject({ ...p, updatedAt: Date.now() });
-      set({ project: null, selection: [] });
+      // Solo se guarda si quedaba algo pendiente: cerrar sin cambios no debe cambiar la fecha
+      // (un proyecto sin tocar pisaría los cambios de otro dispositivo).
+      if (p && !get().readOnly && dirty) {
+        window.clearTimeout(saveTimer);
+        dirty = false;
+        db.saveProject({ ...p, updatedAt: stamp(p), rev: uid('r_') }).then(() => window.dispatchEvent(new Event('mice-saved')));
+      }
+      set({ project: null, selection: [], comments: [], measure: [] });
     },
     setPanel: (panel) => set({ panel }),
     setView: (view) => set({ view, selection: view === 'paseo' ? [] : get().selection, tool: view === 'paseo' ? 'select' : get().tool, placingType: view === 'paseo' ? null : get().placingType }),
@@ -261,14 +285,18 @@ export const useStore = create<State>((set, get) => {
     },
     switchVariant: (id) => {
       const p = get().project;
-      if (!p || id === p.activeVariant) return;
+      if (!p || id === (p.activeVariant ?? p.variants?.[0]?.id ?? 'v_a')) return;
       const vs = syncedVariants(p);
       const v = vs.find((x) => x.id === id);
       if (!v) return;
       set({ past: [], future: [], selection: [] });
       mutate((pr) => ({ ...pr, variants: vs, activeVariant: id, items: v.items, lighting: v.lighting, guests: v.guests ?? pr.guests?.map((g) => ({ ...g, tableId: undefined })), event: { ...pr.event, layout: v.layout } }));
     },
-    renameVariant: (id, name) => mutate((pr) => ({ ...pr, variants: syncedVariants(pr).map((v) => (v.id === id ? { ...v, name } : v)) })),
+    renameVariant: (id, name) =>
+      mutate((pr) => {
+        const vs = syncedVariants(pr);
+        return { ...pr, variants: vs.map((v) => (v.id === id ? { ...v, name } : v)), activeVariant: pr.activeVariant ?? vs[0].id };
+      }),
     deleteVariant: (id) => {
       const p = get().project;
       if (!p) return;
@@ -319,7 +347,7 @@ export const useStore = create<State>((set, get) => {
     },
     startPlacing: (type) => set({ placingTemplate: null, tool: 'place', placingType: type, selection: [], view: get().view === 'paseo' ? '3d' : get().view }),
     setSnap: (snap) => set({ snap }),
-    setClientMode: (clientMode) => set({ clientMode, selection: [], tool: 'select', placingType: null }),
+    setClientMode: (clientMode) => set({ clientMode, selection: [], tool: 'select', placingType: null, measure: [] }),
     setShowVideo: (showVideo) => set({ showVideo }),
     addMeasurePoint: (pt) => set({ measure: get().measure.length >= 2 ? [pt] : [...get().measure, pt] }),
     clearMeasure: () => set({ measure: [] }),
@@ -354,6 +382,19 @@ export const useStore = create<State>((set, get) => {
       if (record) get().checkpoint();
       mutate((p) => {
         const space = { ...p.space, ...patch };
+        const prev = p.space.outline;
+        if ('outline' in patch && space.outline && space.outline.length >= 3) {
+          // El ancho y el fondo siguen al contorno (cámara, paseo y encuadre los usan)
+          if (!('width' in patch)) space.width = Math.round(2 * Math.max(...space.outline.map((q) => Math.abs(q.x))) * 100) / 100;
+          if (!('depth' in patch)) space.depth = Math.round(2 * Math.max(...space.outline.map((q) => Math.abs(q.z))) * 100) / 100;
+          // Las fotos van por tramo de pared: si cambia el número de tramos ya no corresponden
+          if (!('edgePhotos' in patch) && prev && prev.length !== space.outline.length) space.edgePhotos = undefined;
+        } else if (!('outline' in patch) && prev && prev.length >= 3 && ('width' in patch || 'depth' in patch) && p.space.width > 0 && p.space.depth > 0) {
+          // Cambiar el ancho o el fondo de una sala con forma la escala entera
+          const kx = space.width / p.space.width;
+          const kz = space.depth / p.space.depth;
+          space.outline = prev.map((q) => ({ x: Math.round(q.x * kx * 100) / 100, z: Math.round(q.z * kz * 100) / 100 }));
+        }
         const shapeChanged = 'outline' in patch || 'width' in patch || 'depth' in patch;
         if (!shapeChanged || space.outdoor) return { ...p, space };
         // Puertas, salidas, ventanas y cuadros se reajustan a la pared más cercana de la nueva forma
