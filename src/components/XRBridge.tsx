@@ -98,6 +98,7 @@ function makeGuide() {
   return { lines, set };
 }
 
+const MANUAL = 'Ve a cada esquina de la sala, apunta al suelo\nen la esquina y pulsa el gatillo. Vuelve a la primera para cerrar';
 const fm = (v: number) => (Math.round(v * 10) / 10).toString().replace('.', ',');
 
 export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
@@ -115,6 +116,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   const anchor = useRef<any>(null);
   const pendingAnchor = useRef(false);
   const fitted = useRef(false);
+  const btnA = useRef(false);
   /** Escaneo de la sala lanzado por la app (la propia herramienta de escaneo de las gafas). */
   const capture = useRef<{ state: 'none' | 'running' | 'done' | 'failed'; at: number }>({ state: 'none', at: 0 });
   const reticle = useMemo(() => {
@@ -174,7 +176,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
     capture.current = { state: 'running', at: performance.now() };
     scanned.current = [];
     guide.set([]);
-    useXR.setState({ step: 3, message: 'Las gafas van a escanear la sala:\nmira despacio a todas las paredes, el suelo y el techo' });
+    useXR.setState({ step: 3, message: 'Las gafas van a escanear la sala: camina por ella\nmirando las paredes, el suelo y el techo' });
     sess.initiateRoomCapture().then(
       () => {
         capture.current = { state: 'done', at: performance.now() };
@@ -355,6 +357,20 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
     const now = performance.now();
     // Mientras se mide, el montaje actual se oculta para ver bien la sala real
     if (g) g.visible = !(mode === 'ar' && st.task === 'medir');
+    // Botón A o X durante la medición: pasar a marcar las esquinas caminando
+    if (mode === 'ar' && st.task === 'medir') {
+      let pressed = false;
+      gl.xr.getSession()?.inputSources.forEach((src) => {
+        if (src.gamepad?.buttons[4]?.pressed) pressed = true;
+      });
+      if (pressed && !btnA.current && st.step === 3) {
+        points.current = [];
+        guide.set([]);
+        capture.current = { state: 'failed', at: now };
+        useXR.setState({ step: 4, message: MANUAL });
+      }
+      btnA.current = pressed;
+    }
     if (frame && ref && g && mode === 'ar') {
       // Anclaje guardado: el montaje sigue su posición (las gafas la corrigen con el tiempo)
       if (anchor.current) {
@@ -376,7 +392,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
           if (segs.length) {
             const r = parseRoomPlan(planesToRoomPlan(scanned.current));
             useXR.setState({
-              message: `Sala detectada: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes. Gatillo: guardarla\n¿No es esta sala o falta una parte? Botón lateral: escanear de nuevo`,
+              message: `Sala detectada: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes. Gatillo: guardarla\nSi falta una parte: botón lateral, escanear de nuevo (camina por la sala)\nBotón A o X: medirla caminando, marcando las esquinas`,
             });
           } else {
             // Sin escaneo: las gafas lo hacen ahora; si no pueden, se marcan las esquinas a mano.
@@ -385,7 +401,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
               points.current = [];
               useXR.setState({
                 step: 4,
-                message: 'Sin escaneo de esta sala: marca a mano las esquinas.\nApunta al suelo en cada esquina y pulsa el gatillo',
+                message: MANUAL,
               });
             };
             if (cap.state === 'none' && waited > 1500) {
