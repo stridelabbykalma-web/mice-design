@@ -43,7 +43,7 @@ Cada herramienta aporta lo que mejor hace: **las medidas salen del plano, el asp
 2. **iPhone 16 Pro, RoomPlan (MICE Capture) → comprobar el plano.** Una pasada por la sala vacía: si alguna medida difiere más de 5 cm del plano, se corrige (los planos no siempre reflejan obras posteriores).
 3. **iPhone 16 Pro, Gaussian splatting → aspecto fotográfico.** Con Scaniverse (gratis, procesa en el propio iPhone): sala vacía, luz de trabajo encendida, recorrido lento en dos alturas (pecho y por encima de la cabeza) cubriendo paredes, cuadros, techo y lámparas; exportar en **.spz** o .ply. En la app: *Importar splat* → *Encajar con el plano (4 clics)*: dos esquinas del escaneo y sus esquinas del plano; la escala, el giro y la posición se calculan solos.
 4. **Revopoint Inspire 2 → mobiliario real** (silla y mesa de banquete), para que el montaje use las piezas del hotel.
-5. **Meta Quest 3S → verlo.** En la sala vacía, *Realidad mixta*: el montaje sobre la sala real, con sombras en el suelo, en directo desde el ordenador. Fuera del hotel, *Realidad virtual*: el gemelo completo con el splat. Las gafas no sirven para escanear el aspecto (una web no puede usar sus cámaras) y sin sensor de profundidad miden peor que el iPhone.
+5. **Meta Quest 3S → medir (si no hay plano) y verlo.** *Gafas → Medir esta sala con las gafas* crea la sala a partir del escaneo de las propias gafas; en la sala vacía, *Realidad mixta* coloca el montaje sobre la sala real, con sombras en el suelo, en directo desde el ordenador. Fuera del hotel, *Realidad virtual*: el gemelo completo con el splat. Las gafas no sirven para escanear el aspecto (una web no puede usar sus cámaras) y sin sensor de profundidad miden peor que el iPhone.
 
 Para splats en las gafas conviene que el archivo no pase de ~1 millón de puntos (Scaniverse permite elegir la calidad al exportar).
 
@@ -79,6 +79,12 @@ El ejemplo *Gemelo digital de una sala* usa un **escaneo simulado** (`src/assets
 - **Con gafas (WebXR, recomendado Meta Quest 3)**: botón *Gafas* (solo aparece en navegadores compatibles).
   - *Realidad mixta*: se ve la sala real y encima el montaje. Se alinea marcando con el mando o pellizcando con la mano las dos esquinas del frente; si la distancia real no coincide con la de la app, avisa de la diferencia en centímetros.
   - *Realidad virtual*: el gemelo digital completo; se camina o se teletransporta apuntando al suelo.
+  - **Medir esta sala con las gafas** (flujo gafas → PC → gafas):
+    1. En las Quest, *Ajustes → Entorno físico → Configuración del espacio*: escanear la sala caminando por ella (las gafas guardan paredes, puertas, ventanas y techo).
+    2. En la app, en las gafas (emparejadas como «Diseña y edita»): *Gafas → 📏 Medir esta sala*. Las paredes detectadas se ven en verde con sus medidas; con el gatillo se guardan en el proyecto (medidas, forma, altura, puertas y ventanas). Si las gafas no tienen escaneo de la sala (salones muy grandes), se marcan las esquinas en el suelo con el mando y se cierra volviendo a la primera.
+    3. En el ordenador se diseña el montaje sobre esa sala (se sincroniza solo).
+    4. De vuelta en la sala, *Realidad mixta*: el montaje aparece colocado sin marcar nada, porque las gafas guardan un anclaje en la sala. Si no lo tienen (otras gafas, o la sala viene del plano o del iPhone), la app encaja la sala del proyecto con las paredes que detectan; en salas simétricas desempata con las puertas y, si sigue habiendo duda, pide marcar las dos esquinas.
+    - Precisión: el escaneo de la Quest 3S es de unos centímetros; para medidas de proyecto (aforo, evacuación) manda el plano o el iPhone con LiDAR. El escaneo de las gafas cubre salas de tamaño medio: en salones grandes conviene marcar las esquinas a mano.
   - Probado con el emulador oficial IWER (Quest 3): la alineación recupera exactamente una sala girada 30° y desplazada. Falta la prueba con gafas físicas.
 
 ## Rendimiento

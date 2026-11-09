@@ -7,6 +7,7 @@
 - [ ] Instalar MICE Capture en el iPhone 16 Pro desde un Mac con Xcode (`ios/MICECapture/README.md`) y corregir los errores de compilación que aparezcan.
 - [ ] Probar en el iPhone real la captura de paredes con la cámara, la medición con foto, la importación de RoomPlan y la realidad aumentada (USDZ).
 - [ ] Probar el modo gafas en unas Meta Quest 3 (o 3S): realidad mixta con alineación por esquinas y realidad virtual.
+- [ ] Probar «Medir esta sala con las gafas» en una sala real: comparar las medidas con el plano, comprobar que al volver a entrar el montaje aparece en su sitio (anclaje) y hasta qué tamaño de salón llega el escaneo de la Quest 3S.
 
 ### Nube (Supabase)
 - [ ] Revocar la clave secreta `sb_secret_…` que se compartió en el chat y generar otra (no hace falta en la app).

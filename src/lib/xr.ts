@@ -10,13 +10,18 @@ interface XrState {
   supportsAR: boolean;
   supportsVR: boolean;
   mode: XrMode | null;
-  /** Realidad mixta: 0 = marcar esquina izquierda, 1 = derecha, 2 = alineado. */
-  step: 0 | 1 | 2;
+  /** Para qué se entra: ver el montaje (alinear) o medir la sala con las gafas. */
+  task: 'ver' | 'medir';
+  /**
+   * Realidad mixta: 0 = marcar esquina izquierda, 1 = derecha, 2 = alineado.
+   * Medir: 3 = leyendo el escaneo de las gafas, 4 = marcando esquinas a mano.
+   */
+  step: 0 | 1 | 2 | 3 | 4;
   /** Mensaje que se muestra dentro de las gafas. */
   message: string;
 }
 
-export const useXR = create<XrState>(() => ({ supportsAR: false, supportsVR: false, mode: null, step: 0, message: '' }));
+export const useXR = create<XrState>(() => ({ supportsAR: false, supportsVR: false, mode: null, task: 'ver', step: 0, message: '' }));
 
 /** Comprueba qué modos admite este navegador (solo navegadores con WebXR, como el de Quest). */
 export async function detectXR() {
@@ -58,4 +63,23 @@ export function alignFromCorners(a: { x: number; z: number }, b: { x: number; z:
   const az = -a.x * s + a.z * c;
   const mismatch = Math.hypot(B.x - A.x, B.z - A.z) - Math.hypot(b.x - a.x, b.z - a.z);
   return { rot, x: A.x - ax, z: A.z - az, mismatch };
+}
+
+// Anclaje persistente de las gafas: recuerda dónde quedó la sala para no volver a alinear.
+// Se guarda en las propias gafas (cada dispositivo tiene sus anclajes), por proyecto.
+const ANCHOR_KEY = (projectId: string) => `mice-xr-anchor:${projectId}`;
+export function savedAnchor(projectId: string): string | null {
+  try {
+    return localStorage.getItem(ANCHOR_KEY(projectId));
+  } catch {
+    return null;
+  }
+}
+export function saveAnchor(projectId: string, uuid: string | null) {
+  try {
+    if (uuid) localStorage.setItem(ANCHOR_KEY(projectId), uuid);
+    else localStorage.removeItem(ANCHOR_KEY(projectId));
+  } catch {
+    /* sin almacenamiento: se alineará cada vez */
+  }
 }

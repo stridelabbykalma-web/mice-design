@@ -34,8 +34,9 @@ if (!location.hash.startsWith('#p-')) {
 import { detectXR, useXR } from './lib/xr';
 detectXR();
 (window as unknown as { __xrState: () => unknown }).__xrState = () => {
-  const { mode, step, message } = useXR.getState();
-  return { mode, step, message };
+  const { mode, task, step, message } = useXR.getState();
+  const sp = useStore.getState().project?.space;
+  return { mode, task, step, message, room: sp && [sp.width, sp.depth, sp.height, sp.outline?.length ?? 4] };
 };
 
 // Registro de uso para las pruebas con usuarios (solo con una sesión de prueba activa)

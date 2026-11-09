@@ -29,6 +29,9 @@ export interface RoomPlanResult {
   height: number;
   items: Item[];
   summary: string;
+  /** De dónde sale la sala en las coordenadas de la medición: giro (rad) y centro. El modelo
+   *  se lleva a la medición girándolo θ alrededor de Y y desplazándolo (x, z). */
+  frame: { theta: number; x: number; z: number };
 }
 
 const pos = (t: number[]) => ({ x: t[12], y: t[13], z: t[14] });
@@ -136,7 +139,11 @@ export function parseRoomPlan(json: unknown): RoomPlanResult {
     (outline ? ` · sala de ${outline.length} lados` : '') +
     (inner ? ` · ${inner} tramos interiores añadidos como tabiques` : '') +
     '. Revisa qué puertas son salidas de emergencia.';
-  return { outline, width: r2(width), depth: r2(depth), height: r2(height), items, summary };
+  // Centro de la sala en la medición original (giro inverso)
+  const ct = Math.cos(theta);
+  const st = Math.sin(theta);
+  const frame = { theta, x: cx * ct - cz * st, z: cx * st + cz * ct };
+  return { outline, width: r2(width), depth: r2(depth), height: r2(height), items, summary, frame };
 }
 
 /** Encadena tramos de pared por sus extremos; devuelve las esquinas si forman un contorno cerrado. */

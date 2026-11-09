@@ -2,12 +2,19 @@
 //  · Realidad mixta: se ve la sala real y encima el montaje. Se alinea marcando con el mando
 //    (o pellizcando con la mano) las dos esquinas del frente de la sala.
 //  · Realidad virtual: el gemelo completo; se camina o se teletransporta apuntando al suelo.
+//  · Medir la sala: las gafas leen su escaneo de la sala (paredes, puertas, ventanas, techo)
+//    o se marcan las esquinas a mano; la sala se guarda en el proyecto y se diseña en el PC.
+//  · Al volver a entrar, el montaje se coloca solo: con el anclaje que guardan las gafas o
+//    encajando la sala con las paredes que detectan.
 
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../store';
-import { alignFromCorners, frontCorners, useXR, type XrMode } from '../lib/xr';
+import { alignFromCorners, frontCorners, saveAnchor, savedAnchor, useXR, type XrMode } from '../lib/xr';
+import { cornersToRoomPlan, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
+import { parseRoomPlan } from '../lib/roomplan';
+import { logEvent } from '../lib/usageLog';
 import { sceneApi } from './sceneApi';
 
 const floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -30,10 +37,15 @@ function makePanel() {
       ctx.roundRect(8, 8, 1008, 240, 40);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
-      ctx.font = '600 44px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const lines = text.split('\n');
+      // Letra más pequeña si alguna línea no cabe
+      let size = 44;
+      ctx.font = `600 ${size}px system-ui, sans-serif`;
+      const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      if (widest > 960) size = Math.floor((size * 960) / widest);
+      ctx.font = `600 ${size}px system-ui, sans-serif`;
       lines.forEach((l, i) => ctx.fillText(l, 512, 128 + (i - (lines.length - 1) / 2) * 56));
     }
     tex.needsUpdate = true;
@@ -42,6 +54,51 @@ function makePanel() {
   return { mesh, draw };
 }
 
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type AnyFrame = XRFrame & { detectedPlanes?: Set<any>; createAnchor?: (pose: XRRigidTransform, space: XRSpace) => Promise<any> };
+type AnySession = XRSession & {
+  initiateRoomCapture?: () => Promise<void>;
+  restorePersistentAnchor?: (uuid: string) => Promise<any>;
+  deletePersistentAnchor?: (uuid: string) => Promise<void>;
+};
+
+/** Planos que detectan las gafas (su escaneo de la sala), en coordenadas de la escena. */
+function readPlanes(frame: AnyFrame, ref: XRReferenceSpace): ScanPlane[] {
+  const out: ScanPlane[] = [];
+  frame.detectedPlanes?.forEach((pl: any) => {
+    const pose = frame.getPose(pl.planeSpace, ref);
+    if (!pose) return;
+    const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
+    const points = (pl.polygon as DOMPointReadOnly[]).map((p) => {
+      const v = new THREE.Vector3(p.x, p.y, p.z).applyMatrix4(m);
+      return { x: v.x, y: v.y, z: v.z };
+    });
+    const orientation = pl.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const label = String(pl.semanticLabel ?? (orientation === 'vertical' ? 'wall' : 'other')).toLowerCase();
+    out.push({ label, orientation, points });
+  });
+  return out;
+}
+
+/** Líneas que dibujan lo medido (paredes detectadas o esquinas marcadas). */
+function makeGuide() {
+  const geo = new THREE.BufferGeometry();
+  const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: '#27ae60', depthTest: false, transparent: true }));
+  lines.renderOrder = 997;
+  lines.frustumCulled = false;
+  const set = (segs: { a: { x: number; z: number }; b: { x: number; z: number } }[], y = 0.02) => {
+    const arr: number[] = [];
+    for (const g of segs) arr.push(g.a.x, y, g.a.z, g.b.x, y, g.b.z, g.a.x, y, g.a.z, g.a.x, y + 0.5, g.a.z);
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    geo.computeBoundingSphere();
+    lines.visible = segs.length > 0;
+  };
+  return { lines, set };
+}
+
+const fm = (v: number) => (Math.round(v * 10) / 10).toString().replace('.', ',');
+
 export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   const { gl, scene, camera } = useThree();
   const mode = useXR((s) => s.mode);
@@ -49,6 +106,14 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   const points = useRef<THREE.Vector3[]>([]);
   const active = useRef<THREE.Object3D | null>(null);
   const panel = useMemo(makePanel, []);
+  const guide = useMemo(makeGuide, []);
+  /** Paredes detectadas en la última lectura (para guardar la medición). */
+  const scanned = useRef<ScanPlane[]>([]);
+  const lastRead = useRef(0);
+  const started = useRef(0);
+  const anchor = useRef<any>(null);
+  const pendingAnchor = useRef(false);
+  const fitted = useRef(false);
   const reticle = useMemo(() => {
     const m = new THREE.Mesh(
       new THREE.RingGeometry(0.06, 0.09, 32).rotateX(-Math.PI / 2),
@@ -61,13 +126,42 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
 
   useEffect(() => {
     gl.xr.enabled = true;
-    scene.add(panel.mesh, reticle);
+    scene.add(panel.mesh, reticle, guide.lines);
     return () => {
-      scene.remove(panel.mesh, reticle);
+      scene.remove(panel.mesh, reticle, guide.lines);
     };
-  }, [gl, scene, panel, reticle]);
+  }, [gl, scene, panel, reticle, guide]);
 
   useEffect(() => panel.draw(message), [message, panel]);
+
+  /** Guarda en el proyecto la sala medida con las gafas y deja el modelo encima de la real. */
+  const saveScan = (file: ReturnType<typeof planesToRoomPlan>, how: string) => {
+    try {
+      const r = parseRoomPlan(file);
+      const st = useStore.getState();
+      st.updateSpace({ width: r.width, depth: r.depth, height: r.height, outline: r.outline, method: 'fotogrametria' });
+      st.addItems(
+        r.items.map(({ id: _id, ...it }) => it),
+        ['puerta', 'salida', 'ventana', 'tabique'],
+      );
+      anchor.current = null;
+      // El modelo se creó en las coordenadas de la medición: se coloca justo encima.
+      root.current?.rotation.set(0, -r.frame.theta, 0);
+      root.current?.position.set(r.frame.x, 0, r.frame.z);
+      pendingAnchor.current = true;
+      guide.set([]);
+      points.current = [];
+      logEvent('gafas', `sala medida (${how})`);
+      useXR.setState({
+        task: 'ver',
+        step: 2,
+        message: `Sala guardada: ${fm(r.width)} × ${fm(r.depth)} m, ${fm(r.height)} m de alto\nDiséñala en el PC y vuelve a entrar para verla aquí`,
+      });
+      window.setTimeout(() => useXR.getState().step === 2 && useXR.setState({ message: '' }), 8000);
+    } catch (e) {
+      useXR.setState({ message: (e as Error).message });
+    }
+  };
 
   // Mandos (o manos): rayo, punto en el suelo y pulsación (gatillo o pellizco)
   useEffect(() => {
@@ -100,7 +194,32 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         g.position.z += head.z - p.z;
         return;
       }
+      if (st.task === 'medir') {
+        if (st.step === 3) {
+          // Guardar la sala que han detectado las gafas
+          if (scanned.current.some((x) => x.label === 'wall')) saveScan(planesToRoomPlan(scanned.current), 'escaneo de las gafas');
+          return;
+        }
+        if (st.step === 4) {
+          const pts = points.current;
+          const first = pts[0];
+          if (pts.length >= 3 && Math.hypot(p.x - first.x, p.z - first.z) < 0.5) {
+            const ceiling = scanned.current.find((x) => x.label === 'ceiling');
+            const h = ceiling ? ceiling.points.reduce((acc, q) => acc + q.y, 0) / ceiling.points.length : sp.height;
+            saveScan(cornersToRoomPlan(pts.map((q) => ({ x: q.x, z: q.z })), h), 'esquinas marcadas con el mando');
+            return;
+          }
+          pts.push(p.clone());
+          guide.set(pts.slice(1).map((q, i) => ({ a: pts[i], b: q })));
+          useXR.setState({
+            message: `${pts.length} esquinas · ${fm(pts.slice(1).reduce((acc, q, i) => acc + q.distanceTo(pts[i]), 0))} m de pared\n${pts.length >= 3 ? 'Vuelve a la primera esquina para cerrar la sala' : 'Marca la siguiente esquina'}`,
+          });
+          return;
+        }
+      }
       if (st.step === 0 || st.step === 2) {
+        anchor.current = null;
+        fitted.current = true;
         points.current = [p];
         useXR.setState({ step: 1, message: 'Ahora la esquina del FRENTE DERECHA\n(apunta al suelo y pulsa)' });
         return;
@@ -111,6 +230,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       const t = alignFromCorners(a, b, { x: A.x, z: A.z }, { x: B.x, z: B.z });
       g.rotation.set(0, t.rot, 0);
       g.position.set(t.x, 0, t.z);
+      pendingAnchor.current = true;
       const cm = Math.round(t.mismatch * 100);
       useXR.setState({
         step: 2,
@@ -130,16 +250,17 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         scene.remove(c);
       });
     };
-  }, [gl, scene, camera, root]);
+  }, [gl, scene, camera, root, guide]);
 
   // Abrir y cerrar la sesión de las gafas
   useEffect(() => {
-    sceneApi.enterXR = async (m: XrMode) => {
+    sceneApi.enterXR = async (m: XrMode, task: 'ver' | 'medir' = 'ver') => {
       const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
       if (!xr) throw new Error('Este navegador no admite gafas de realidad virtual o mixta.');
       const session = await xr.requestSession(m === 'ar' ? 'immersive-ar' : 'immersive-vr', {
         requiredFeatures: ['local-floor'],
-        optionalFeatures: ['hand-tracking', 'bounded-floor'],
+        // plane-detection: el escaneo de la sala de las gafas; anchors: recordar la posición.
+        optionalFeatures: ['hand-tracking', 'bounded-floor', 'plane-detection', 'anchors'],
       });
       gl.xr.setReferenceSpaceType('local-floor');
       // Algo más de resolución que la nativa (bordes más nítidos, sobre todo en Quest 3S)
@@ -147,36 +268,145 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       gl.xr.setFramebufferScaleFactor(1.2);
       gl.xr.setFoveation(0.6);
       await gl.xr.setSession(session);
+      started.current = performance.now();
+      fitted.current = false;
+      anchor.current = null;
+      scanned.current = [];
       useXR.setState({
         mode: m,
-        step: m === 'ar' ? 0 : 2,
+        task: m === 'ar' ? task : 'ver',
+        step: m !== 'ar' ? 2 : task === 'medir' ? 3 : 0,
         message:
-          m === 'ar'
-            ? 'Ve a la esquina del FRENTE IZQUIERDA de la sala,\napunta al suelo en la esquina y pulsa el gatillo'
-            : 'Camina por la sala o apunta al suelo\ny pulsa el gatillo para moverte',
+          m !== 'ar'
+            ? 'Camina por la sala o apunta al suelo\ny pulsa el gatillo para moverte'
+            : task === 'medir'
+              ? 'Leyendo el escaneo de la sala de las gafas…'
+              : 'Buscando la sala…',
       });
+      // Volver a la posición que se guardó en estas gafas la última vez
+      const pid = useStore.getState().project?.id;
+      const uuid = pid && m === 'ar' && task === 'ver' ? savedAnchor(pid) : null;
+      const sess = session as AnySession;
+      if (uuid && sess.restorePersistentAnchor)
+        sess.restorePersistentAnchor(uuid).then(
+          (a) => {
+            anchor.current = a;
+            fitted.current = true;
+            useXR.setState({ step: 2, message: 'Montaje colocado donde lo dejaste' });
+            window.setTimeout(() => useXR.getState().step === 2 && useXR.setState({ message: '' }), 4000);
+          },
+          () => pid && saveAnchor(pid, null),
+        );
       if (m === 'vr') window.setTimeout(() => useXR.getState().mode === 'vr' && useXR.setState({ message: '' }), 7000);
       session.addEventListener('end', () => {
         root.current?.position.set(0, 0, 0);
         root.current?.rotation.set(0, 0, 0);
         points.current = [];
-        useXR.setState({ mode: null, step: 0, message: '' });
+        anchor.current = null;
+        guide.set([]);
+        if (root.current) root.current.visible = true;
+        useXR.setState({ mode: null, task: 'ver', step: 0, message: '' });
       });
     };
     return () => {
       sceneApi.enterXR = undefined;
     };
-  }, [gl, root]);
+  }, [gl, root, guide]);
 
-  useFrame(() => {
+  useFrame((_, __, xrFrame) => {
     if (!mode) return;
+    const frame = xrFrame as AnyFrame | undefined;
+    const ref = gl.xr.getReferenceSpace();
+    const g = root.current;
+    const st = useXR.getState();
+    const now = performance.now();
+    // Mientras se mide, el montaje actual se oculta para ver bien la sala real
+    if (g) g.visible = !(mode === 'ar' && st.task === 'medir');
+    if (frame && ref && g && mode === 'ar') {
+      // Anclaje guardado: el montaje sigue su posición (las gafas la corrigen con el tiempo)
+      if (anchor.current) {
+        const pose = frame.getPose(anchor.current.anchorSpace, ref);
+        if (pose) {
+          const mtx = new THREE.Matrix4().fromArray(pose.transform.matrix);
+          mtx.decompose(g.position, g.quaternion, g.scale);
+        }
+      }
+      // Leer el escaneo de las gafas una vez por segundo
+      if (now - lastRead.current > 1000 && (st.task === 'medir' || !fitted.current)) {
+        lastRead.current = now;
+        const planes = readPlanes(frame, ref);
+        if (planes.length) scanned.current = planes;
+        const segs = wallSegments(scanned.current);
+        const waited = now - started.current;
+        if (st.task === 'medir' && st.step === 3) {
+          guide.set(segs);
+          if (segs.length) {
+            const r = parseRoomPlan(planesToRoomPlan(scanned.current));
+            useXR.setState({ message: `Sala detectada: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes\nRevisa las líneas verdes y pulsa el gatillo para guardarla` });
+          } else if (waited > 3000) {
+            const sess = gl.xr.getSession() as AnySession | null;
+            const canCapture = !!sess?.initiateRoomCapture && !frame.detectedPlanes?.size;
+            if (canCapture && waited < 4500) sess!.initiateRoomCapture!().catch(() => undefined);
+            points.current = [];
+            useXR.setState({
+              step: 4,
+              message: 'Sin escaneo de esta sala: marca a mano las esquinas.\nApunta al suelo en cada esquina y pulsa el gatillo',
+            });
+          }
+        } else if (st.task === 'ver' && !fitted.current && st.step === 0) {
+          const sp = useStore.getState().project?.space;
+          const items = useStore.getState().project?.items ?? [];
+          if (sp && segs.length >= 2) {
+            const doorsWorld = scanned.current
+              .filter((x) => x.label === 'door')
+              .map((x) => ({ x: x.points.reduce((acc, q) => acc + q.x, 0) / x.points.length, z: x.points.reduce((acc, q) => acc + q.z, 0) / x.points.length }));
+            const doorsModel = items.filter((i) => i.type === 'puerta' || i.type === 'salida').map((i) => ({ x: i.x, z: i.z }));
+            const fit = fitModelToWalls(sp, segs, { model: doorsModel, world: doorsWorld });
+            if (fit && fit.error < 0.25 && !fit.ambiguous) {
+              fitted.current = true;
+              g.rotation.set(0, fit.rot, 0);
+              g.position.set(fit.x, 0, fit.z);
+              pendingAnchor.current = true;
+              useXR.setState({
+                step: 2,
+                message: `Montaje encajado con las paredes (±${Math.max(1, Math.round(fit.error * 100))} cm)\nSi no cuadra, marca las esquinas: pulsa el gatillo`,
+              });
+              window.setTimeout(() => useXR.getState().step === 2 && useXR.setState({ message: '' }), 6000);
+            }
+          }
+          if (!fitted.current && waited > 2500) {
+            fitted.current = true;
+            useXR.setState({ message: 'Ve a la esquina del FRENTE IZQUIERDA de la sala,\napunta al suelo en la esquina y pulsa el gatillo' });
+          }
+        }
+      }
+      // Guardar en las gafas dónde ha quedado la sala para la próxima vez
+      if (pendingAnchor.current && frame.createAnchor) {
+        pendingAnchor.current = false;
+        g.updateMatrixWorld(true);
+        const q = new THREE.Quaternion().setFromEuler(g.rotation);
+        const pose = new XRRigidTransform({ x: g.position.x, y: 0, z: g.position.z }, { x: q.x, y: q.y, z: q.z, w: q.w });
+        const pid = useStore.getState().project?.id;
+        const sess = gl.xr.getSession() as AnySession | null;
+        frame
+          .createAnchor(pose, ref)
+          .then(async (a: any) => {
+            const old = pid ? savedAnchor(pid) : null;
+            if (old) await sess?.deletePersistentAnchor?.(old).catch(() => undefined);
+            anchor.current = a;
+            const uuid = a.requestPersistentHandle ? await a.requestPersistentHandle() : null;
+            if (pid) saveAnchor(pid, uuid);
+          })
+          .catch(() => undefined);
+      }
+    }
     // Punto de mira en el suelo del último mando usado
     const c = active.current ?? gl.xr.getController(1);
     c.updateMatrixWorld(true);
     const origin = new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
     const dir = new THREE.Vector3(0, 0, -1).transformDirection(c.matrixWorld);
     const p = new THREE.Ray(origin, dir).intersectPlane(floor, new THREE.Vector3());
-    reticle.visible = !!p && (mode === 'vr' || useXR.getState().step < 2);
+    reticle.visible = !!p && (mode === 'vr' || st.step !== 2);
     if (p) reticle.position.copy(p).setY(0.005);
     // El panel sigue la mirada a 1,2 m, algo por debajo de los ojos
     if (panel.mesh.visible) {
