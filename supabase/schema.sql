@@ -196,13 +196,16 @@ returns text language plpgsql security definer set search_path = public as $$
 declare
   r text := public.hotel_role(p_hotel);
   alphabet text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  b bytea := gen_random_bytes(8);
+  -- gen_random_uuid() es del núcleo de Postgres; gen_random_bytes() es de pgcrypto, que en
+  -- Supabase vive en el esquema «extensions» y no se ve desde aquí.
+  b bytea := uuid_send(gen_random_uuid());
   c text := '';
 begin
   if r is null or r = 'viewer' then raise exception 'No tienes permiso para invitar'; end if;
   if p_role not in ('admin', 'editor', 'viewer') then raise exception 'Rol no válido'; end if;
   if p_role = 'admin' and r <> 'admin' then raise exception 'Solo un administrador puede invitar administradores'; end if;
-  for i in 0..7 loop c := c || substr(alphabet, (get_byte(b, i) % 32) + 1, 1); end loop;
+  -- Bytes 0-5, 10 y 11 (se evitan los que llevan la versión y la variante del UUID)
+  for i in 0..7 loop c := c || substr(alphabet, (get_byte(b, case when i < 6 then i else i + 4 end) % 32) + 1, 1); end loop;
   delete from public.hotel_codes where expires_at < now();
   insert into public.hotel_codes (code, hotel_id, role, project_id, label, expires_at, created_by)
   values (c, p_hotel, p_role, p_project, p_label, now() + make_interval(mins => greatest(5, least(coalesce(p_minutes, 30), 10080))), auth.uid());
