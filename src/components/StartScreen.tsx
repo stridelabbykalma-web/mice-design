@@ -6,6 +6,7 @@ import { db, downloadBlob, importProject } from '../lib/db';
 import { exportLibrary, importLibrary, useLibrary } from '../lib/library';
 import { projectFromRoom } from '../lib/rooms';
 import { SyncSection, usePendingOpen } from './SyncPanel';
+import { HeadsetMeasure } from './XrButton';
 import { useAuth } from '../lib/auth';
 import { useSync } from '../lib/sync';
 import { blankSpace, demoProject, demoScanProject } from '../lib/demo';
@@ -52,6 +53,7 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
   const [spaceName, setSpaceName] = useState('');
   const [dims, setDims] = useState({ w: 20, d: 14, h: 3.5 });
   const [error, setError] = useState('');
+  const role = useAuth((a) => a.hotel?.role);
 
   const refresh = () => db.listProjects().then(setProjects);
   const lastSync = useSync((s) => s.last);
@@ -179,6 +181,15 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
             </div>
           ))}
         </div>
+
+        <HeadsetMeasure
+          viewer={role === 'viewer'}
+          create={() => {
+            const p = newProject(blankSpace('fotogrametria', 'Sala medida con las gafas', 10, 8, 3), 'Nuevo evento', hotel);
+            db.saveProject(p);
+            openProject(p);
+          }}
+        />
 
         <h2>1. ¿Cómo quieres crear el espacio digital?</h2>
         <div className="method-grid">

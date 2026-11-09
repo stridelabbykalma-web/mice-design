@@ -52,3 +52,53 @@ export function XrButton() {
     </details>
   );
 }
+
+/**
+ * Tarjeta «Medir la sala con las gafas»: en las Quest abre directamente la medición; en un
+ * ordenador o un móvil explica cómo hacerlo. `create` crea y abre antes un proyecto nuevo
+ * (pantalla de inicio); sin él se mide la sala del proyecto abierto.
+ */
+export function HeadsetMeasure({ create, viewer }: { create?: () => void; viewer?: boolean }) {
+  const { supportsAR, mode } = useXR();
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const start = async () => {
+    setMsg('');
+    setBusy(true);
+    try {
+      create?.();
+      // La escena 3D tarda un instante en montarse al abrir el proyecto
+      for (let i = 0; i < 40 && !sceneApi.enterXR; i++) await new Promise((r) => setTimeout(r, 100));
+      if (!sceneApi.enterXR) throw new Error('La escena no ha terminado de cargar. Pulsa «🥽 Gafas → Medir esta sala con las gafas».');
+      await sceneApi.enterXR('ar', 'medir');
+      logEvent('gafas', 'medir la sala');
+    } catch (x) {
+      setMsg(`${(x as Error).message} Si el proyecto ya está abierto, usa el botón «🥽 Gafas» de arriba y elige «Medir esta sala con las gafas».`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="callout">
+      <strong>🥽 Medir la sala con las gafas (Meta Quest 3 / 3S)</strong>
+      {supportsAR && !viewer ? (
+        <>
+          <p className="hint">
+            Ponte en la sala. Las gafas leen su escaneo (paredes, puertas, ventanas y techo) o lo hacen en el momento; después se guarda aquí y se diseña en el ordenador.
+          </p>
+          <button className="btn primary" disabled={busy || !!mode} onClick={start}>
+            {create ? 'Crear una sala midiéndola con las gafas' : 'Medir esta sala con las gafas'}
+          </button>
+        </>
+      ) : supportsAR ? (
+        <p className="hint">Estas gafas están emparejadas solo para ver. Para medir, emparéjalas de nuevo desde el ordenador con la opción «Móvil o gafas que editan».</p>
+      ) : (
+        <p className="hint">
+          Se hace desde las gafas: abre esta misma dirección en el navegador de las Quest, entra con la cuenta del hotel (o empareja las gafas con la opción «Móvil o gafas que editan») y
+          verás aquí el botón para medir. La sala aparece después en este dispositivo.
+        </p>
+      )}
+      {msg && <p className="error">{msg}</p>}
+    </div>
+  );
+}

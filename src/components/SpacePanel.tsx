@@ -1,3 +1,4 @@
+import { HeadsetMeasure } from './XrButton';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useStore } from '../store';
@@ -41,6 +42,7 @@ export default function SpacePanel() {
   const measure = useStore((s) => s.measure);
   const setTool = useStore((s) => s.setTool);
   const { space } = project;
+  const readOnly = useStore((st) => st.readOnly);
   const [realDist, setRealDist] = useState(5);
 
   const measured = measure.length === 2 ? Math.hypot(measure[1].x - measure[0].x, measure[1].z - measure[0].z) : 0;
@@ -84,6 +86,7 @@ export default function SpacePanel() {
         </div>
         {!space.outdoor && <ShapeEditor />}
         <SaveRoom />
+        <HeadsetMeasure viewer={readOnly} />
         <RoomPlanImport />
         <div className="callout">
           <strong>📏 ¿No tienes las medidas?</strong>
