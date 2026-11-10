@@ -146,4 +146,32 @@ describe('escaneo caminando (profundidad de las gafas)', () => {
   it('sin datos suficientes no inventa una sala', () => {
     expect(new WalkScan().outline()).toBeNull();
   });
+
+  it('una puerta abierta no añade la sala de al lado', () => {
+    // Sala A de 8 × 6 m y sala B de 6 × 6 m, separadas por un tabique de 20 cm con una puerta de 1,5 m
+    const room = [
+      { x: -4, z: -3 },
+      { x: 4, z: -3 },
+      { x: 4, z: -0.75 },
+      { x: 4.2, z: -0.75 },
+      { x: 4.2, z: -3 },
+      { x: 10.2, z: -3 },
+      { x: 10.2, z: 3 },
+      { x: 4.2, z: 3 },
+      { x: 4.2, z: 0.75 },
+      { x: 4, z: 0.75 },
+      { x: 4, z: 3 },
+      { x: -4, z: 3 },
+    ];
+    // Se camina solo por la sala A, pasando por delante de la puerta
+    const r = walk(room, 3, [
+      { x: -2.5, z: -1.5 },
+      { x: 2.8, z: -1.5 },
+      { x: 2.8, z: 1.5 },
+      { x: -2.5, z: 1.5 },
+      { x: -2.5, z: -1.5 },
+    ]).outline()!;
+    expect(Math.abs(r.area - 48)).toBeLessThan(48 * 0.08);
+    expect(Math.max(...r.outline.map((p) => p.x))).toBeLessThan(4.4);
+  });
 });

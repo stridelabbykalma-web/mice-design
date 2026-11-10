@@ -20,6 +20,8 @@ export interface ScanPlane {
   orientation: 'horizontal' | 'vertical';
   /** Vértices del contorno del plano en el mundo. */
   points: V3[];
+  /** Cuándo cambió por última vez (ms del reloj de la página). */
+  changed?: number;
 }
 
 /** Superficie vertical → [ancho, alto] y matriz 4×4 (por columnas) al estilo de RoomPlan. */

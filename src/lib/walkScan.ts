@@ -18,6 +18,8 @@ export const MAX_RANGE = 5;
 const OFF = 4096;
 /** Fotogramas distintos en los que hay que ver una celda para darla por buena. */
 const MIN_FRAMES = 3;
+/** Huecos más estrechos que esto se consideran puertas. */
+const DOOR = 2.5;
 const key = (ix: number, iz: number) => (ix + OFF) * 8192 + (iz + OFF);
 
 export interface WalkOutline {
@@ -37,10 +39,14 @@ export class WalkScan {
   private floorSum = 0;
   private floorN = 0;
   frames = 0;
+  /** Por dónde ha pasado la persona (una posición cada 30 cm). */
+  private path: P2[] = [];
 
   /** Añade las muestras de un fotograma: posición de la cabeza y puntos vistos (metros, suelo en y = 0). */
   addFrame(head: P3, pts: P3[]) {
     this.frames++;
+    const last = this.path[this.path.length - 1];
+    if (!last || Math.hypot(head.x - last.x, head.z - last.z) > 0.3) this.path.push({ x: head.x, z: head.z });
     const seenFree = new Set<number>();
     const seenWall = new Set<number>();
     for (const p of pts) {
@@ -203,40 +209,67 @@ export class WalkScan {
         const cellsIn = ((lu[i + 1] - lu[i]) * (lv[j + 1] - lv[j])) / (CELL * CELL);
         inside[j * nu + i] = count[j * nu + i] > cellsIn * 0.5 ? 1 : 0;
       }
-    // Mayor grupo conexo
-    const comp = new Int32Array(nu * nv).fill(-1);
-    let bestComp = -1;
-    let bestArea = 0;
-    for (let start = 0; start < nu * nv; start++) {
-      if (!inside[start] || comp[start] >= 0) continue;
-      let area = 0;
-      const stack = [start];
-      comp[start] = start;
-      while (stack.length) {
-        const k = stack.pop()!;
-        const i = k % nu;
-        const j = (k - i) / nu;
-        area += (lu[i + 1] - lu[i]) * (lv[j + 1] - lv[j]);
-        for (const [a, b] of [
-          [i + 1, j],
-          [i - 1, j],
-          [i, j + 1],
-          [i, j - 1],
-        ]) {
-          if (a < 0 || b < 0 || a >= nu || b >= nv) continue;
-          const q = b * nu + a;
-          if (inside[q] && comp[q] < 0) {
-            comp[q] = start;
-            stack.push(q);
-          }
-        }
+    // Paredes entre rectángulos vecinos: una zona a la que solo se llega por un hueco estrecho
+    // (una puerta abierta) y por la que no se ha caminado no forma parte de la sala.
+    const wallSet = new Set<string>();
+    for (const p of walls) wallSet.add(`${Math.round(U(p) / CELL)},${Math.round(V(p) / CELL)}`);
+    const isWall = (alongU: boolean, f: number, tt: number) => {
+      for (let d = -2; d <= 2; d++) if (wallSet.has(alongU ? `${tt},${f + d}` : `${f + d},${tt}`)) return true;
+      return false;
+    };
+    /** Mayor hueco sin pared (m) en la línea que separa dos rectángulos, medido más allá del tramo común. */
+    const opening = (alongU: boolean, fixed: number, from: number, to: number) => {
+      const f = Math.round(fixed / CELL);
+      let best = 0;
+      const t0 = Math.round((from + CELL / 2) / CELL);
+      const t1 = Math.round((to - CELL / 2) / CELL);
+      for (let t = t0; t <= t1; t++) {
+        if (isWall(alongU, f, t)) continue;
+        let lo = t;
+        let hi = t;
+        while (t - lo < 40 && !isWall(alongU, f, lo - 1)) lo--;
+        while (hi - t < 40 && !isWall(alongU, f, hi + 1)) hi++;
+        best = Math.max(best, (hi - lo + 1) * CELL);
+        t = hi;
       }
-      if (area > bestArea) {
-        bestArea = area;
-        bestComp = start;
+      return best;
+    };
+    /** Entre el rectángulo (i, j) y su vecino (a, b) solo hay paso si el hueco mide al menos 2,5 m (más que una puerta). */
+    const blocked = (i: number, j: number, a: number, b: number) =>
+      (a !== i ? opening(false, lu[Math.max(i, a)], lv[j], lv[j + 1]) : opening(true, lv[Math.max(j, b)], lu[i], lu[i + 1])) < DOOR;
+    // La sala es el grupo de rectángulos comunicados con los que ha pisado la persona
+    const comp = new Int32Array(nu * nv).fill(-1);
+    const stack: number[] = [];
+    for (const h of this.path) {
+      const i = idx(lu, U(h));
+      const j = idx(lv, V(h));
+      if (i >= 0 && j >= 0 && inside[j * nu + i] && comp[j * nu + i] < 0) {
+        comp[j * nu + i] = 0;
+        stack.push(j * nu + i);
       }
     }
-    if (bestComp < 0 || bestArea < 4) return null;
+    let bestArea = 0;
+    while (stack.length) {
+      const k = stack.pop()!;
+      const i = k % nu;
+      const j = (k - i) / nu;
+      bestArea += (lu[i + 1] - lu[i]) * (lv[j + 1] - lv[j]);
+      for (const [a, b] of [
+        [i + 1, j],
+        [i - 1, j],
+        [i, j + 1],
+        [i, j - 1],
+      ]) {
+        if (a < 0 || b < 0 || a >= nu || b >= nv) continue;
+        const q = b * nu + a;
+        if (inside[q] && comp[q] < 0 && !blocked(i, j, a, b)) {
+          comp[q] = 0;
+          stack.push(q);
+        }
+      }
+    }
+    const bestComp = 0;
+    if (bestArea < 4) return null;
     const isIn = (i: number, j: number) => i >= 0 && j >= 0 && i < nu && j < nv && comp[j * nu + i] === bestComp;
 
     // 4. Borde de la unión: aristas con el interior a la izquierda, encadenadas
