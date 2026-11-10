@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cornersToRoomPlan, currentRoomPlanes, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
+import { cornersToRoomPlan, currentRoomPlanes, planeObstacles, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
 import { parseRoomPlan } from '../lib/roomplan';
 import type { Space } from '../types';
 
@@ -157,5 +157,24 @@ describe('medir la sala con las gafas', () => {
       expect(a.items.filter((i) => i.type === 'puerta'), `A ${withFloor}`).toHaveLength(1);
       expect(a.items.filter((i) => i.type === 'ventana' || i.type === 'tabique'), `A ${withFloor}`).toHaveLength(0);
     }
+  });
+
+  it('los muebles anotados por las gafas (mesa, sofá) pasan a ser obstáculos', () => {
+    // Mesa de 1,6 × 0,8 m a 0,75 m de altura, girada 30°; el techo y el suelo no cuentan
+    const c = Math.cos(Math.PI / 6);
+    const s = Math.sin(Math.PI / 6);
+    const top = [
+      [-0.8, -0.4],
+      [0.8, -0.4],
+      [0.8, 0.4],
+      [-0.8, 0.4],
+    ].map(([x, z]) => ({ x: 2 + x * c - z * s, y: 0.75, z: 1 + x * s + z * c }));
+    const obs = planeObstacles([...planes, { label: 'table', orientation: 'horizontal', points: top }]);
+    expect(obs).toHaveLength(1);
+    expect(obs[0].x).toBeCloseTo(2, 2);
+    expect(obs[0].z).toBeCloseTo(1, 2);
+    expect([obs[0].w, obs[0].d].map((v) => Math.round(v * 10) / 10)).toEqual([1.6, 0.8]);
+    expect(obs[0].h).toBeCloseTo(0.75, 2);
+    expect(Math.abs(obs[0].rot)).toBeCloseTo(30, 0);
   });
 });

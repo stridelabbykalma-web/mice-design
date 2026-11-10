@@ -301,3 +301,44 @@ export function currentRoomPlanes(planes: ScanPlane[], head: P): ScanPlane[] {
   // Si el filtro deja menos de tres paredes, mejor no filtrar
   return keep.filter((p) => p.label === 'wall').length >= 3 ? dropTwinWalls(keep, (m) => Math.hypot(m.x - head.x, m.z - head.z)) : planes;
 }
+
+/**
+ * Muebles que las gafas tienen anotados en su escaneo (mesas, sofás, armarios…): llegan como
+ * planos horizontales (la cara de arriba). Cada uno se convierte en una caja apoyada en el
+ * suelo, orientada según su lado más largo.
+ */
+export function planeObstacles(planes: ScanPlane[]): { x: number; z: number; w: number; d: number; h: number; rot: number; label: string }[] {
+  const floor = planes.find((p) => p.label === 'floor');
+  const fy = floor ? floor.points.reduce((s, q) => s + q.y, 0) / floor.points.length : 0;
+  const out: { x: number; z: number; w: number; d: number; h: number; rot: number; label: string }[] = [];
+  for (const pl of planes) {
+    if (pl.orientation !== 'horizontal' || pl.label === 'floor' || pl.label === 'ceiling' || pl.points.length < 3) continue;
+    const y = pl.points.reduce((s, q) => s + q.y, 0) / pl.points.length - fy;
+    if (y < 0.2 || y > 2.4) continue;
+    // Dirección del lado más largo
+    let best = 0;
+    let ux = 1;
+    let uz = 0;
+    pl.points.forEach((a, i) => {
+      const b = pl.points[(i + 1) % pl.points.length];
+      const l = Math.hypot(b.x - a.x, b.z - a.z);
+      if (l > best) {
+        best = l;
+        ux = (b.x - a.x) / l;
+        uz = (b.z - a.z) / l;
+      }
+    });
+    const us = pl.points.map((q) => q.x * ux + q.z * uz);
+    const vs = pl.points.map((q) => -q.x * uz + q.z * ux);
+    const u0 = Math.min(...us);
+    const u1 = Math.max(...us);
+    const v0 = Math.min(...vs);
+    const v1 = Math.max(...vs);
+    if ((u1 - u0) * (v1 - v0) < 0.08) continue;
+    const cu = (u0 + u1) / 2;
+    const cv = (v0 + v1) / 2;
+    // Giro de la app (grados): el eje local X apunta a (cos r, −sin r)
+    out.push({ x: cu * ux - cv * uz, z: cu * uz + cv * ux, w: u1 - u0, d: v1 - v0, h: Math.round(y * 20) / 20, rot: (-Math.atan2(uz, ux) * 180) / Math.PI, label: pl.label });
+  }
+  return out;
+}

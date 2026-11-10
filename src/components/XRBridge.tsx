@@ -13,7 +13,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../store';
 import { alignFromCorners, frontCorners, saveAnchor, savedAnchor, useXR, type XrMode } from '../lib/xr';
-import { cornersToRoomPlan, currentRoomPlanes, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
+import { cornersToRoomPlan, currentRoomPlanes, planeObstacles, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
 import { parseRoomPlan } from '../lib/roomplan';
 import { WalkScan, type Obstacle, type WalkOutline } from '../lib/walkScan';
 import { DEPTH_INIT, makeDepthReader } from '../lib/xrDepth';
@@ -119,6 +119,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   const pendingAnchor = useRef(false);
   const fitted = useRef(false);
   const unbounded = useRef<{ base: XRReferenceSpace; floor: XRReferenceSpace; done: boolean } | null>(null);
+  const diagDone = useRef(false);
   const btnA = useRef(false);
   const btnB = useRef(false);
   /** Las gafas tienen guardadas más salas además de esta. */
@@ -266,7 +267,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       if (st.task === 'medir') {
         if (st.step === 3) {
           // Guardar la sala que han detectado las gafas
-          if (scanned.current.some((x) => x.label === 'wall')) saveScan(planesToRoomPlan(scanned.current), 'escaneo de las gafas');
+          if (scanned.current.some((x) => x.label === 'wall')) saveScan(planesToRoomPlan(scanned.current), 'escaneo de las gafas', planeObstacles(scanned.current));
           return;
         }
         if (st.step === 5) {
@@ -383,6 +384,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       useMeta.current = false;
       noDepth.current = false;
       walkResult.current = null;
+      diagDone.current = false;
       anchor.current = null;
       scanned.current = [];
       useXR.setState({
@@ -441,6 +443,42 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       }
     }
     const ref = gl.xr.getReferenceSpace();
+    // Diagnóstico (una vez, a los 4 s de empezar a medir): qué dan estas gafas. Se guarda en el
+    // proyecto para poder revisar a distancia por qué un modo de medición no arranca.
+    if (frame && mode === 'ar' && !diagDone.current && useXR.getState().task === 'medir' && performance.now() - started.current > 4000) {
+      diagDone.current = true;
+      const sess = frame.session as XRSession & { depthUsage?: string; depthDataFormat?: string };
+      const tryGet = (f: () => unknown) => {
+        try {
+          return f() ?? null;
+        } catch (e) {
+          return `error: ${(e as Error).name}`;
+        }
+      };
+      const XRB = (window as unknown as { XRWebGLBinding?: { prototype: object } }).XRWebGLBinding;
+      const labels: Record<string, number> = {};
+      const all = ref ? readPlanes(frame, ref) : [];
+      all.forEach((x) => (labels[`${x.orientation[0]}:${x.label}`] = (labels[`${x.orientation[0]}:${x.label}`] ?? 0) + 1));
+      const info = {
+        cuando: new Date().toISOString(),
+        navegador: navigator.userAgent,
+        funciones: tryGet(() => sess.enabledFeatures),
+        capas: tryGet(() => sess.renderState.layers !== undefined),
+        binding: !!XRB,
+        bindingCapas: !!XRB && 'createProjectionLayer' in XRB.prototype,
+        profundidadPedida: depthAsked.current,
+        profundidadUso: tryGet(() => sess.depthUsage),
+        profundidadFormato: tryGet(() => sess.depthDataFormat),
+        profundidadLectura: depth.mode ?? (depth.error || 'sin calibrar'),
+        sinLimites: !!unbounded.current?.done,
+        planos: labels,
+        planosConFecha: all.some((x) => x.changed !== undefined),
+        mallas: tryGet(() => (frame as unknown as { detectedMeshes?: Set<unknown> }).detectedMeshes?.size),
+        paso: useXR.getState().step,
+      };
+      const stt = useStore.getState();
+      if (stt.project && !stt.readOnly) stt.patchProject({ xrInfo: info });
+    }
     const g = root.current;
     const st = useXR.getState();
     const now = performance.now();
@@ -541,11 +579,23 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         const segs = wallSegments(scanned.current);
         const waited = now - started.current;
         if (st.task === 'medir' && st.step === 3) {
-          guide.set(segs);
+          // Muebles anotados por las gafas, como recuadros dentro de la sala
+          const furn = planeObstacles(scanned.current);
+          const boxes = furn.flatMap((b) => {
+            const t = (b.rot * Math.PI) / 180;
+            const cs = [
+              [-b.w / 2, -b.d / 2],
+              [b.w / 2, -b.d / 2],
+              [b.w / 2, b.d / 2],
+              [-b.w / 2, b.d / 2],
+            ].map(([lx, lz]) => ({ x: b.x + lx * Math.cos(t) + lz * Math.sin(t), z: b.z - lx * Math.sin(t) + lz * Math.cos(t) }));
+            return cs.map((a, i) => ({ a, b: cs[(i + 1) % 4] }));
+          });
+          guide.set([...segs, ...boxes]);
           if (segs.length) {
             const r = parseRoomPlan(planesToRoomPlan(scanned.current));
             useXR.setState({
-              message: `${otherRooms.current ? 'Sala escaneada (solo esta, sin las contiguas)' : 'Sala escaneada por las gafas'}: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes. Gatillo: guardarla\nBotón B o Y: escanear caminando · Botón lateral: repetir el escaneo de las gafas\nBotón A o X: marcar las esquinas a mano`,
+              message: `${otherRooms.current ? 'Sala escaneada (solo esta, sin las contiguas)' : 'Sala escaneada por las gafas'}: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes${furn.length ? `, ${furn.length} muebles` : ''}. Gatillo: guardarla\nBotón B o Y: escanear caminando · Botón lateral: repetir el escaneo de las gafas\nBotón A o X: marcar las esquinas a mano`,
             });
           } else {
             // Sin escaneo: las gafas lo hacen ahora; si no pueden, se marcan las esquinas a mano.

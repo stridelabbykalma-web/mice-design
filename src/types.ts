@@ -206,6 +206,8 @@ export interface Project {
   rev?: string;
   /** Se ha pedido medir esta sala con las gafas: al abrirla en ellas se ofrece hacerlo. */
   measureRequest?: boolean;
+  /** Diagnóstico de la última medición con gafas (qué dieron las gafas y qué no). */
+  xrInfo?: Record<string, unknown>;
   space: Space;
   items: Item[];
   customCatalog: CatalogDef[];
