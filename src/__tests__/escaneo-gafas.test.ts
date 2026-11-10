@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cornersToRoomPlan, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
+import { cornersToRoomPlan, currentRoomPlanes, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
 import { parseRoomPlan } from '../lib/roomplan';
 import type { Space } from '../types';
 
@@ -89,5 +89,36 @@ describe('medir la sala con las gafas', () => {
   it('una sala del plano que no coincide da error grande', () => {
     const fit = fitModelToWalls(space(20, 15), wallSegments(planes))!;
     expect(fit.error).toBeGreaterThan(0.25);
+  });
+
+  it('con varias salas guardadas en las gafas, usa solo aquella en la que se está', () => {
+    // Sala contigua de 6 × 5 m pegada a la pared este de la sala principal (12 × 8 m)
+    const c2 = [
+      [6.2, -2.5],
+      [12.2, -2.5],
+      [12.2, 2.5],
+      [6.2, 2.5],
+    ].map(([x, z]) => toWorld(x, z));
+    const second: ScanPlane[] = [
+      ...c2.map((a, i) => wall(a, c2[(i + 1) % 4])),
+      { label: 'floor', orientation: 'horizontal', points: c2.map((c) => ({ ...c, y: 0 })) },
+      { label: 'ceiling', orientation: 'horizontal', points: c2.map((c) => ({ ...c, y: 2.6 })) },
+    ];
+    const all = [...planes, ...second];
+    // Mezcladas dan una sala que no existe
+    expect(parseRoomPlan(planesToRoomPlan(all)).width).toBeGreaterThan(15);
+    // Estando en la principal
+    const a = parseRoomPlan(planesToRoomPlan(currentRoomPlanes(all, toWorld(1, 1))));
+    expect([a.width, a.depth]).toEqual([12, 8]);
+    expect(a.height).toBeCloseTo(3.2, 1);
+    expect(a.items.filter((i) => i.type === 'puerta')).toHaveLength(1);
+    // Estando en la contigua
+    const b = parseRoomPlan(planesToRoomPlan(currentRoomPlanes(all, toWorld(9, 0))));
+    expect([b.width, b.depth]).toEqual([6, 5]);
+    expect(b.height).toBeCloseTo(2.6, 1);
+    // Sin planos de suelo: las paredes que se ven desde donde se está
+    const noFloor = all.filter((p) => p.label !== 'floor');
+    const c = parseRoomPlan(planesToRoomPlan(currentRoomPlanes(noFloor, toWorld(9, 0))));
+    expect([c.width, c.depth]).toEqual([6, 5]);
   });
 });

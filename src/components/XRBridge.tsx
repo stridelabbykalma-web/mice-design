@@ -13,7 +13,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useStore } from '../store';
 import { alignFromCorners, frontCorners, saveAnchor, savedAnchor, useXR, type XrMode } from '../lib/xr';
-import { cornersToRoomPlan, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
+import { cornersToRoomPlan, currentRoomPlanes, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
 import { parseRoomPlan } from '../lib/roomplan';
 import { WalkScan, type WalkOutline } from '../lib/walkScan';
 import { DEPTH_INIT, makeDepthReader } from '../lib/xrDepth';
@@ -120,6 +120,8 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   const fitted = useRef(false);
   const btnA = useRef(false);
   const btnB = useRef(false);
+  /** Las gafas tienen guardadas más salas además de esta. */
+  const otherRooms = useRef(false);
   // Escaneo caminando con el mapa de profundidad de las gafas
   const depth = useMemo(() => makeDepthReader(gl), [gl]);
   const walk = useRef(new WalkScan());
@@ -473,7 +475,11 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       // Leer el escaneo de las gafas una vez por segundo
       if (now - lastRead.current > 1000 && (st.task === 'medir' || !fitted.current)) {
         lastRead.current = now;
-        const planes = readPlanes(frame, ref);
+        // Solo la sala en la que se está (las gafas guardan también las contiguas)
+        const hp = frame.getViewerPose(ref)?.transform.position;
+        const all = readPlanes(frame, ref);
+        const planes = hp ? currentRoomPlanes(all, { x: hp.x, z: hp.z }) : all;
+        otherRooms.current = all.filter((x) => x.label === 'wall').length > planes.filter((x) => x.label === 'wall').length;
         if (planes.length) scanned.current = planes;
         const segs = wallSegments(scanned.current);
         const waited = now - started.current;
@@ -482,7 +488,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
           if (segs.length) {
             const r = parseRoomPlan(planesToRoomPlan(scanned.current));
             useXR.setState({
-              message: `Las gafas ya tienen una sala: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes. Gatillo: guardarla\nBotón B o Y: escanear caminando · Botón lateral: repetir el escaneo de las gafas\nBotón A o X: marcar las esquinas a mano`,
+              message: `${otherRooms.current ? 'Sala en la que estás (las gafas tienen más guardadas)' : 'Las gafas ya tienen esta sala'}: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes. Gatillo: guardarla\nBotón B o Y: escanear caminando · Botón lateral: repetir el escaneo de las gafas\nBotón A o X: marcar las esquinas a mano`,
             });
           } else {
             // Sin escaneo: las gafas lo hacen ahora; si no pueden, se marcan las esquinas a mano.

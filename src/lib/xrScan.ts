@@ -210,3 +210,53 @@ export function fitModelToWalls(space: Space, segs: Seg[], doors?: { model: P[];
   const ambiguous = candidates.some((c) => c !== best && Math.abs(c.score - best.score) < 0.05 && Math.hypot(c.x - best.x, c.z - best.z) + Math.abs(Math.sin((c.rot - best.rot) / 2)) > 0.3);
   return { rot: best.rot, x: best.x, z: best.z, error: best.error, ambiguous };
 }
+
+function pointInPoly(p: P, poly: P[]) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if (a.z > p.z !== b.z > p.z && p.x < ((b.x - a.x) * (p.z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+const distToPoly = (p: P, poly: P[]) => Math.min(...poly.map((a, i) => distToSeg(p, { a, b: poly[(i + 1) % poly.length] })));
+
+/** ¿Se cruzan los segmentos ab y cd? */
+function cross(a: P, b: P, c: P, d: P) {
+  const o = (p: P, q: P, r: P) => (q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x);
+  return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+}
+
+/**
+ * Las gafas guardan varias salas (también las contiguas) y las devuelven todas juntas. Se
+ * dejan solo los planos de la sala en la que está la persona:
+ *  · si hay planos de suelo, la sala es el suelo que tiene debajo (o el más cercano) y sus
+ *    paredes, puertas y ventanas son las que están en el borde de ese suelo;
+ *  · si no, las paredes que se ven desde donde está sin otra pared por medio.
+ */
+export function currentRoomPlanes(planes: ScanPlane[], head: P): ScanPlane[] {
+  const flat = (pl: ScanPlane) => pl.points.map((q) => ({ x: q.x, z: q.z }));
+  const mid = (pl: ScanPlane) => ({ x: pl.points.reduce((s, q) => s + q.x, 0) / pl.points.length, z: pl.points.reduce((s, q) => s + q.z, 0) / pl.points.length });
+  const floors = planes.filter((p) => p.label === 'floor' && p.points.length >= 3);
+  if (floors.length) {
+    const floor = floors.find((f) => pointInPoly(head, flat(f))) ?? [...floors].sort((a, b) => distToPoly(head, flat(a)) - distToPoly(head, flat(b)))[0];
+    const poly = flat(floor);
+    const near = (p: P, tol: number) => pointInPoly(p, poly) || distToPoly(p, poly) < tol;
+    return planes.filter((pl) => {
+      if (pl === floor) return true;
+      if (pl.label === 'floor') return false;
+      const m = mid(pl);
+      // Verticales (paredes, puertas, ventanas): justo en el borde de este suelo (la pared de la
+      // sala contigua queda al otro lado del tabique, a más de 12 cm). El resto, encima de él.
+      return pl.orientation === 'vertical' ? distToPoly(m, poly) < 0.12 : near(m, 0.3);
+    });
+  }
+  const walls = planes.filter((p) => p.orientation === 'vertical' && p.label === 'wall' && p.points.length >= 3);
+  if (walls.length <= 4) return planes;
+  const segs = wallSegments(walls);
+  const visible = (m: P) => !segs.some((g) => cross(head, m, g.a, g.b));
+  const keep = planes.filter((pl) => pl.orientation !== 'vertical' || visible({ x: head.x + (mid(pl).x - head.x) * 0.97, z: head.z + (mid(pl).z - head.z) * 0.97 }));
+  // Si el filtro deja menos de tres paredes, mejor no filtrar
+  return keep.filter((p) => p.label === 'wall').length >= 3 ? keep : planes;
+}
