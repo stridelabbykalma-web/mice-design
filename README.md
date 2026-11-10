@@ -47,6 +47,10 @@ Cada herramienta aporta lo que mejor hace: **las medidas salen del plano, el asp
 
 Para splats en las gafas conviene que el archivo no pase de ~1 millón de puntos (Scaniverse permite elegir la calidad al exportar).
 
+## Versión y actualización automática
+
+La pantalla de inicio muestra la versión (fecha y hora de publicación). Al abrir la app, y al volver a ella sin un proyecto abierto, se consulta `version.json`; si hay una versión más nueva, la página se recarga saltándose la caché del navegador (importante en las gafas, que la conservan mucho tiempo).
+
 ## Salas de ejemplo
 
 En la pantalla de inicio hay seis salas típicas de hotel, cada una con su arquitectura (puertas, salidas, ventanas, columnas) y un evento ya montado por fases: sala de consejo (9 × 6 m, reunión), salón de congresos alargado (30 × 14 m, congreso con cena de gala), salón en L (convención), gran salón con ocho columnas (gala de 300), salón ochavado (boda) y terraza exterior (presentación de producto). Sirven para probar la app sin planos y son también el banco de pruebas automático (`src/__tests__/salas-ejemplo.test.ts`): en cada sala se generan los seis montajes con y sin escenario para 0, 10, 60 y 200 personas y los diez tipos de evento, y se comprueba que nada queda fuera de la sala, que no hay errores de seguridad y que las horas del programa van en orden.
@@ -84,6 +88,8 @@ El ejemplo *Gemelo digital de una sala* usa un **escaneo simulado** (`src/assets
   - *Realidad mixta*: se ve la sala real y encima el montaje. Se alinea marcando con el mando o pellizcando con la mano las dos esquinas del frente; si la distancia real no coincide con la de la app, avisa de la diferencia en centímetros.
   - *Realidad virtual*: el gemelo digital completo; se camina o se teletransporta apuntando al suelo.
   - **Medir esta sala con las gafas** (flujo gafas → PC → gafas):
+    - **Muebles y obstáculos:** en el escaneo caminando, lo que ocupa sitio entre 0,35 y 2,3 m de altura (armarios, barras, mesas que ya están) se guarda como «Mueble u obstáculo fijo»: cajas alineadas con las paredes, con su altura, que los montajes automáticos esquivan. Los entrantes estrechos de la sala (un armario de pared a techo, un pilar) también se guardan así en vez de deformar el contorno. En las gafas se ven como recuadros verdes dentro de la sala.
+    - **Nombre de la sala:** se escribe en la tarjeta antes de medir; sin nombre, la sala lleva la fecha y la hora.
     - **Escaneo caminando** (por defecto si las gafas dan el mapa de profundidad, WebXR *depth-sensing*): se mira un momento al suelo para calibrar y se camina por la sala mirando a las paredes; una línea verde va rodeando lo ya visto, con los m² y la altura del techo, y el gatillo guarda la sala. La planta se reconstruye en la propia app (`src/lib/walkScan.ts`): lo visto entre la cabeza y cada punto es suelo libre, los puntos entre 1,0 y 2,3 m son pared, y la sala es la unión de los rectángulos libres entre las líneas de pared (vale para salas en L o con entrantes). La profundidad solo se usa hasta 5 m, así que un salón grande hay que recorrerlo entero. Botones: B o Y escaneo caminando, botón lateral escaneo de Meta, A o X esquinas a mano.
     - Lo más rápido: en el móvil o el ordenador (con la cuenta del hotel), tarjeta *Medir la sala con las gafas → dame el código*. En las gafas solo se escribe ese código (pestaña «Gafas o móvil»): se abre la sala con el botón «Medir esta sala ahora» y, al guardar, la sala aparece en el móvil y el ordenador.
     1. En la app, en las gafas (emparejadas con la opción «Móvil o gafas que editan»): *Gafas → 📏 Medir esta sala*. Si las gafas no tienen esa sala escaneada, la app abre su escaneo (el de *Configuración del espacio*): se camina mirando las paredes, el suelo y el techo, y al terminar se vuelve solo a la app. El botón lateral del mando repite el escaneo.

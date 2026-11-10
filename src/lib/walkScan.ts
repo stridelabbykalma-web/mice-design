@@ -28,6 +28,8 @@ export interface WalkOutline {
   area: number;
   /** Orientación de las paredes (grados). */
   angle: number;
+  /** Entrantes convertidos en obstáculo (en el sistema girado de la sala). */
+  filled: { u0: number; u1: number; v0: number; v1: number }[];
 }
 
 export class WalkScan {
@@ -35,6 +37,9 @@ export class WalkScan {
   // equivocada (profundidad retrasada respecto a la cabeza) no cambia el resultado.
   private free = new Map<number, number>();
   private wall = new Map<number, number>();
+  /** Cosas que ocupan sitio (de 0,35 a 2,3 m de altura): fotogramas en que se han visto y altura máxima. */
+  private obj = new Map<number, number>();
+  private objH = new Map<number, number>();
   private ceil = new Map<number, number>();
   private floorSum = 0;
   private floorN = 0;
@@ -49,6 +54,7 @@ export class WalkScan {
     if (!last || Math.hypot(head.x - last.x, head.z - last.z) > 0.3) this.path.push({ x: head.x, z: head.z });
     const seenFree = new Set<number>();
     const seenWall = new Set<number>();
+    const seenObj = new Set<number>();
     for (const p of pts) {
       if (!Number.isFinite(p.x + p.y + p.z)) continue;
       const dx = p.x - head.x;
@@ -73,6 +79,13 @@ export class WalkScan {
         const t = (reach * i) / n / dist;
         seenFree.add(key(Math.floor((head.x + dx * t) / CELL), Math.floor((head.z + dz * t) / CELL)));
       }
+      // Muebles y obstáculos: cualquier cosa entre 0,35 y 2,3 m. A menos de 1 m no cuenta
+      // (son las manos y los mandos de quien escanea).
+      if (dist >= 1 && dist <= MAX_RANGE && p.y >= 0.35 && p.y <= 2.3) {
+        const k = key(Math.floor(p.x / CELL), Math.floor(p.z / CELL));
+        seenObj.add(k);
+        if (p.y > (this.objH.get(k) ?? 0)) this.objH.set(k, p.y);
+      }
       // Pared: puntos a media altura, dentro del alcance
       if (dist <= MAX_RANGE && p.y >= 1.0 && p.y <= 2.3) {
         seenWall.add(key(Math.floor(p.x / CELL), Math.floor(p.z / CELL)));
@@ -80,6 +93,7 @@ export class WalkScan {
     }
     for (const k of seenFree) this.free.set(k, (this.free.get(k) ?? 0) + 1);
     for (const k of seenWall) this.wall.set(k, (this.wall.get(k) ?? 0) + 1);
+    for (const k of seenObj) this.obj.set(k, (this.obj.get(k) ?? 0) + 1);
   }
 
   private freeKeys() {
@@ -162,16 +176,28 @@ export class WalkScan {
     const V = (p: P2) => -p.x * s + p.z * c;
 
     // 2. Líneas de pared en cada eje (máximos del histograma) y límites de lo visto
-    const lines = (coord: (p: P2) => number) => {
-      const h = new Map<number, number>();
+    const lines = (coord: (p: P2) => number, along: (p: P2) => number) => {
+      // Por cada posición, las celdas de pared ordenadas a lo largo de la línea
+      const h = new Map<number, number[]>();
       for (const p of walls) {
         const b = Math.round(coord(p) / CELL);
-        h.set(b, (h.get(b) ?? 0) + 1);
+        if (!h.has(b)) h.set(b, []);
+        h.get(b)!.push(Math.round(along(p) / CELL));
       }
-      const val = (b: number) => (h.get(b - 1) ?? 0) + (h.get(b) ?? 0) + (h.get(b + 1) ?? 0);
-      // Una línea necesita al menos 1 m de pared vista
-      const cand = [...h.keys()].map((b) => ({ b, v: val(b) })).filter((x) => x.v >= 10);
-      cand.sort((p, q) => q.v - p.v);
+      // Una línea de pared es un tramo seguido de al menos 0,4 m. Las paredes perpendiculares
+      // dejan en cada posición solo su grosor (una o dos celdas sueltas) y no cuentan.
+      const run = (b: number) => {
+        const xs = [...new Set([...(h.get(b - 1) ?? []), ...(h.get(b) ?? []), ...(h.get(b + 1) ?? [])])].sort((p, q) => p - q);
+        let best = 0;
+        let cur = 0;
+        for (let i = 0; i < xs.length; i++) {
+          cur = i > 0 && xs[i] - xs[i - 1] <= 2 ? cur + (xs[i] - xs[i - 1]) : 1;
+          best = Math.max(best, cur);
+        }
+        return { best, total: xs.length };
+      };
+      const cand = [...h.keys()].map((b) => ({ b, ...run(b) })).filter((x) => x.best >= 4);
+      cand.sort((p, q) => q.total - p.total);
       const picked: number[] = [];
       for (const x of cand) if (!picked.some((b) => Math.abs(b - x.b) < 5)) picked.push(x.b);
       const out = picked.map((b) => b * CELL);
@@ -179,8 +205,8 @@ export class WalkScan {
       for (const e of [fs[Math.floor(fs.length * 0.002)], fs[Math.ceil(fs.length * 0.998) - 1]]) if (!out.some((l) => Math.abs(l - e) < 0.6)) out.push(e);
       return out.sort((p, q) => p - q);
     };
-    const lu = lines(U);
-    const lv = lines(V);
+    const lu = lines(U, V);
+    const lv = lines(V, U);
     if (lu.length < 2 || lv.length < 2) return null;
 
     // 3. Rectángulos entre líneas: dentro si se ha visto libre más de la mitad
@@ -270,6 +296,28 @@ export class WalkScan {
     }
     const bestComp = 0;
     if (bestArea < 4) return null;
+    // Entrantes estrechos rodeados de sala por tres lados (o islas): no son forma de la sala
+    // sino algo que ocupa sitio (un armario, un pilar, una barra). Se devuelven a la sala y
+    // se anotan como obstáculo.
+    const filled: { u0: number; u1: number; v0: number; v1: number }[] = [];
+    for (let j = 0; j < nv; j++)
+      for (let i = 0; i < nu; i++) {
+        if (comp[j * nu + i] === 0) continue;
+        const du = lu[i + 1] - lu[i];
+        const dv = lv[j + 1] - lv[j];
+        if (Math.min(du, dv) > 1.2 || Math.max(du, dv) > 4) continue;
+        const nb = [
+          [i + 1, j],
+          [i - 1, j],
+          [i, j + 1],
+          [i, j - 1],
+        ].filter(([a, b]) => a >= 0 && b >= 0 && a < nu && b < nv && comp[b * nu + a] === 0).length;
+        if (nb >= 3) filled.push({ u0: lu[i], u1: lu[i + 1], v0: lv[j], v1: lv[j + 1] });
+      }
+    for (const f of filled) {
+      comp[idx(lv, (f.v0 + f.v1) / 2) * nu + idx(lu, (f.u0 + f.u1) / 2)] = 0;
+      bestArea += (f.u1 - f.u0) * (f.v1 - f.v0);
+    }
     const isIn = (i: number, j: number) => i >= 0 && j >= 0 && i < nu && j < nv && comp[j * nu + i] === bestComp;
 
     // 4. Borde de la unión: aristas con el interior a la izquierda, encadenadas
@@ -311,6 +359,137 @@ export class WalkScan {
       const v = lv[j];
       return { x: u * c - v * s, z: u * s + v * c };
     });
-    return { outline, area: bestArea, angle: ang };
+    return { outline, area: bestArea, angle: ang, filled };
   }
+
+  /**
+   * Muebles y obstáculos dentro de la sala (armarios, barras, mesas que ya están): cajas
+   * alineadas con las paredes. Lo que queda a menos de 0,9 m de una pared se pega a ella
+   * (de un armario solo se ve el frente).
+   */
+  obstacles(room: WalkOutline): Obstacle[] {
+    const c = Math.cos((room.angle * Math.PI) / 180);
+    const s = Math.sin((room.angle * Math.PI) / 180);
+    const poly = room.outline;
+    const inPoly = (p: P2) => {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i];
+        const b = poly[j];
+        if (a.z > p.z !== b.z > p.z && p.x < ((b.x - a.x) * (p.z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+      }
+      return inside;
+    };
+    const distWall = (p: P2) => {
+      let m = Infinity;
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i];
+        const b = poly[(i + 1) % poly.length];
+        const vx = b.x - a.x;
+        const vz = b.z - a.z;
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.z - a.z) * vz) / (vx * vx + vz * vz || 1)));
+        m = Math.min(m, Math.hypot(p.x - a.x - t * vx, p.z - a.z - t * vz));
+      }
+      return m;
+    };
+    // Celdas ocupadas dentro de la sala, lejos de las paredes y de por donde se ha caminado
+    const cells = new Map<string, { u: number; v: number; h: number }>();
+    for (const [k, n] of this.obj) {
+      if (n < MIN_FRAMES) continue;
+      const p = { x: (Math.floor(k / 8192) - OFF + 0.5) * CELL, z: ((k % 8192) - OFF + 0.5) * CELL };
+      if (!inPoly(p) || distWall(p) < 0.3) continue;
+      if (this.path.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 0.4)) continue;
+      const u = Math.round((p.x * c + p.z * s) / CELL);
+      const v = Math.round((-p.x * s + p.z * c) / CELL);
+      const h = this.objH.get(k) ?? 1;
+      const prev = cells.get(`${u},${v}`);
+      if (!prev || h > prev.h) cells.set(`${u},${v}`, { u, v, h });
+    }
+    const out: Obstacle[] = [];
+    // Entrantes de la sala anotados como obstáculo: su altura es la de lo visto en su frente
+    for (const f of room.filled) {
+      const hs: number[] = [];
+      for (const [k, n] of this.obj) {
+        if (n < MIN_FRAMES) continue;
+        const p = { x: (Math.floor(k / 8192) - OFF + 0.5) * CELL, z: ((k % 8192) - OFF + 0.5) * CELL };
+        const u = p.x * c + p.z * s;
+        const v = -p.x * s + p.z * c;
+        if (u > f.u0 - 0.2 && u < f.u1 + 0.2 && v > f.v0 - 0.2 && v < f.v1 + 0.2) hs.push(this.objH.get(k) ?? 2);
+      }
+      hs.sort((a, b) => a - b);
+      const h = hs.length ? Math.round(hs[Math.floor(hs.length * 0.9)] * 20) / 20 : 2;
+      out.push({ x: ((f.u0 + f.u1) / 2) * c - ((f.v0 + f.v1) / 2) * s, z: ((f.u0 + f.u1) / 2) * s + ((f.v0 + f.v1) / 2) * c, w: f.u1 - f.u0, d: f.v1 - f.v0, h: Math.max(0.4, h), rot: -room.angle });
+    }
+    const inFilled = (u: number, v: number) => room.filled.some((f) => u > f.u0 - 0.25 && u < f.u1 + 0.25 && v > f.v0 - 0.25 && v < f.v1 + 0.25);
+    // Grupos de celdas vecinas (se toleran huecos de 20 cm)
+    const boxes: { u0: number; u1: number; v0: number; v1: number; h: number }[] = [];
+    const seen = new Set<string>();
+    for (const [k0, c0] of cells) {
+      if (seen.has(k0)) continue;
+      seen.add(k0);
+      const group = [c0];
+      for (let i = 0; i < group.length; i++) {
+        const g = group[i];
+        for (let du = -2; du <= 2; du++)
+          for (let dv = -2; dv <= 2; dv++) {
+            const k = `${g.u + du},${g.v + dv}`;
+            const n = cells.get(k);
+            if (n && !seen.has(k)) {
+              seen.add(k);
+              group.push(n);
+            }
+          }
+      }
+      if (group.length < 10) continue;
+      let u0 = (Math.min(...group.map((g) => g.u)) - 0.5) * CELL;
+      let u1 = (Math.max(...group.map((g) => g.u)) + 0.5) * CELL;
+      let v0 = (Math.min(...group.map((g) => g.v)) - 0.5) * CELL;
+      let v1 = (Math.max(...group.map((g) => g.v)) + 0.5) * CELL;
+      if (Math.max(u1 - u0, v1 - v0) < 0.4) continue;
+      if (inFilled((u0 + u1) / 2, (v0 + v1) / 2)) continue;
+      const world = (u: number, v: number) => ({ x: u * c - v * s, z: u * s + v * c });
+      // Pegar a la pared cercana: se avanza desde cada cara hasta salir de la sala
+      const reach = (u: number, v: number, du: number, dv: number) => {
+        for (let t = CELL; t <= 0.9; t += CELL) if (!inPoly(world(u + du * t, v + dv * t))) return t;
+        return 0;
+      };
+      const um = (u0 + u1) / 2;
+      const vm = (v0 + v1) / 2;
+      u0 -= reach(u0, vm, -1, 0);
+      u1 += reach(u1, vm, 1, 0);
+      v0 -= reach(um, v0, 0, -1);
+      v1 += reach(um, v1, 0, 1);
+      const hs = group.map((g) => g.h).sort((a, b) => a - b);
+      const h = Math.round(hs[Math.floor(hs.length * 0.9)] * 20) / 20;
+      boxes.push({ u0, u1, v0, v1, h: Math.max(0.4, h) });
+    }
+    // Trozos del mismo mueble (se tocan y tienen una altura parecida): se unen
+    for (let merged = true; merged; ) {
+      merged = false;
+      for (let a = 0; a < boxes.length && !merged; a++)
+        for (let b = a + 1; b < boxes.length && !merged; b++) {
+          const A = boxes[a];
+          const B = boxes[b];
+          if (Math.abs(A.h - B.h) > 0.4 || A.u0 > B.u1 + 0.3 || B.u0 > A.u1 + 0.3 || A.v0 > B.v1 + 0.3 || B.v0 > A.v1 + 0.3) continue;
+          boxes[a] = { u0: Math.min(A.u0, B.u0), u1: Math.max(A.u1, B.u1), v0: Math.min(A.v0, B.v0), v1: Math.max(A.v1, B.v1), h: Math.max(A.h, B.h) };
+          boxes.splice(b, 1);
+          merged = true;
+        }
+    }
+    for (const b of boxes) {
+      const ctr = { x: ((b.u0 + b.u1) / 2) * c - ((b.v0 + b.v1) / 2) * s, z: ((b.u0 + b.u1) / 2) * s + ((b.v0 + b.v1) / 2) * c };
+      out.push({ x: ctr.x, z: ctr.z, w: Math.max(0.2, b.u1 - b.u0), d: Math.max(0.2, b.v1 - b.v0), h: b.h, rot: -room.angle });
+    }
+    return out;
+  }
+}
+
+/** Caja de un mueble u obstáculo en coordenadas del escaneo (rot en grados, convenio de la app). */
+export interface Obstacle {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  h: number;
+  rot: number;
 }

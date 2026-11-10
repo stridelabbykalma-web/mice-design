@@ -15,7 +15,7 @@ import { useStore } from '../store';
 import { alignFromCorners, frontCorners, saveAnchor, savedAnchor, useXR, type XrMode } from '../lib/xr';
 import { cornersToRoomPlan, currentRoomPlanes, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
 import { parseRoomPlan } from '../lib/roomplan';
-import { WalkScan, type WalkOutline } from '../lib/walkScan';
+import { WalkScan, type Obstacle, type WalkOutline } from '../lib/walkScan';
 import { DEPTH_INIT, makeDepthReader } from '../lib/xrDepth';
 import { logEvent } from '../lib/usageLog';
 import { sceneApi } from './sceneApi';
@@ -157,15 +157,21 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   useEffect(() => panel.draw(message), [message, panel]);
 
   /** Guarda en el proyecto la sala medida con las gafas y deja el modelo encima de la real. */
-  const saveScan = (file: ReturnType<typeof planesToRoomPlan>, how: string) => {
+  const saveScan = (file: ReturnType<typeof planesToRoomPlan>, how: string, obstacles: Obstacle[] = []) => {
     try {
       const r = parseRoomPlan(file);
       const st = useStore.getState();
       st.updateSpace({ width: r.width, depth: r.depth, height: r.height, outline: r.outline, method: 'fotogrametria' });
-      st.addItems(
-        r.items.map(({ id: _id, ...it }) => it),
-        ['puerta', 'salida', 'ventana', 'tabique'],
-      );
+      // Muebles y obstáculos vistos al escanear, llevados a las coordenadas de la sala
+      const ct = Math.cos(-r.frame.theta);
+      const sn = Math.sin(-r.frame.theta);
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const fixed = obstacles.map((o) => {
+        const X = o.x - r.frame.x;
+        const Z = o.z - r.frame.z;
+        return { type: 'obstaculo', x: r2(X * ct - Z * sn), z: r2(X * sn + Z * ct), rot: r2(o.rot + (r.frame.theta * 180) / Math.PI), w: r2(o.w), d: r2(o.d), h: r2(o.h) };
+      });
+      st.addItems([...r.items.map(({ id: _id, ...it }) => it), ...fixed], ['puerta', 'salida', 'ventana', 'tabique', 'obstaculo']);
       anchor.current = null;
       if (st.project?.measureRequest) st.patchProject({ measureRequest: undefined });
       // El modelo se creó en las coordenadas de la medición: se coloca justo encima.
@@ -178,7 +184,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       useXR.setState({
         task: 'ver',
         step: 2,
-        message: `Sala guardada: ${fm(r.width)} × ${fm(r.depth)} m, ${fm(r.height)} m de alto\nDiséñala en el PC y vuelve a entrar para verla aquí`,
+        message: `«${useStore.getState().project?.space.name ?? 'Sala'}» guardada: ${fm(r.width)} × ${fm(r.depth)} m, ${fm(r.height)} m de alto${fixed.length ? `, ${fixed.length} muebles u obstáculos` : ''}\nDiséñala en el PC y vuelve a entrar para verla aquí`,
       });
       window.setTimeout(() => useXR.getState().step === 2 && useXR.setState({ message: '' }), 8000);
     } catch (e) {
@@ -264,7 +270,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         }
         if (st.step === 5) {
           const o = walkResult.current;
-          if (o) saveScan(cornersToRoomPlan(o.outline, walk.current.ceiling ?? sp.height), 'escaneo caminando');
+          if (o) saveScan(cornersToRoomPlan(o.outline, walk.current.ceiling ?? sp.height), 'escaneo caminando', walk.current.obstacles(o));
           return;
         }
         if (st.step === 4) {
@@ -465,13 +471,24 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
             lastOutline.current = now;
             const o = depth.mode ? walk.current.outline() : null;
             walkResult.current = o;
-            guide.set(o ? o.outline.map((a, i) => ({ a, b: o.outline[(i + 1) % o.outline.length] })) : []);
+            const obs = o ? walk.current.obstacles(o) : [];
+            const boxes = obs.flatMap((b) => {
+              const t = (b.rot * Math.PI) / 180;
+              const cs = [
+                [-b.w / 2, -b.d / 2],
+                [b.w / 2, -b.d / 2],
+                [b.w / 2, b.d / 2],
+                [-b.w / 2, b.d / 2],
+              ].map(([lx, lz]) => ({ x: b.x + lx * Math.cos(t) + lz * Math.sin(t), z: b.z - lx * Math.sin(t) + lz * Math.cos(t) }));
+              return cs.map((a, i) => ({ a, b: cs[(i + 1) % 4] }));
+            });
+            guide.set(o ? [...o.outline.map((a, i) => ({ a, b: o.outline[(i + 1) % o.outline.length] })), ...boxes] : []);
             const h = walk.current.ceiling;
             useXR.setState({
               message: !depth.mode
                 ? 'Escaneo caminando: mira un momento al suelo\ny después camina por toda la sala mirando a las paredes'
                 : o
-                  ? `Sala vista: ${fm(o.area)} m²${h ? `, techo a ${fm(h)} m` : ''}. Sigue caminando hasta que la línea verde\nrodee toda la sala. Gatillo: guardar · Botón lateral: escaneo de las gafas · A o X: esquinas`
+                  ? `Sala vista: ${fm(o.area)} m²${h ? `, techo a ${fm(h)} m` : ''}${obs.length ? `, ${obs.length} muebles` : ''}. Sigue caminando hasta que la línea verde\nrodee toda la sala. Gatillo: guardar · Botón lateral: escaneo de las gafas · A o X: esquinas`
                   : `Camina por la sala mirando a las paredes (${fm(walk.current.seenArea)} m² vistos)\nLa línea verde aparecerá al ver paredes suficientes`,
             });
           }

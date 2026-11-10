@@ -1,3 +1,4 @@
+import { BUILD } from '../lib/version';
 import { EXAMPLE_ROOMS, exampleProject } from '../lib/examples';
 import { roomArea } from '../lib/outline';
 import { useEffect, useState } from 'react';
@@ -163,8 +164,10 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
       <main className="start-main">
         <HeadsetMeasure
           viewer={role === 'viewer'}
-          create={() => {
-            const p = newProject(blankSpace('fotogrametria', 'Sala medida con las gafas', 10, 8, 3), 'Nuevo evento', hotel);
+          create={(roomName) => {
+            // Sin nombre, la sala lleva la fecha y la hora para poder distinguirla de otras
+            const room = roomName.trim() || `Sala medida el ${new Date().toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
+            const p = newProject(blankSpace('fotogrametria', room, 10, 8, 3), `Evento en ${room}`, hotel);
             db.saveProject(p).then(refresh);
             return p;
           }}
@@ -274,6 +277,7 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
             ))}
           </div>
         )}
+        <p className="muted" style={{ marginTop: 24, textAlign: 'center' }}>Versión del {BUILD}</p>
       </main>
       <footer className="start-foot">MICE Design · Prototipo del Trabajo de Fin de Grado · curso 2026-2027</footer>
     </div>

@@ -61,6 +61,7 @@ export const BASE_CATALOG: CatalogDef[] = [
   { type: 'atril-bienvenida', name: 'Cartel de bienvenida', category: 'senaletica', w: 0.7, d: 0.5, h: 1.6, price: 30, color: '#ffffff' },
   // Arquitectura
   { type: 'columna', name: 'Columna', category: 'arquitectura', w: 0.5, d: 0.5, h: 3, price: 0, color: '#e8e4dc', resizable: true },
+  { type: 'obstaculo', name: 'Mueble u obstáculo fijo', category: 'arquitectura', w: 1, d: 0.6, h: 2, price: 0, color: '#b9b2a6', resizable: true, description: 'Armario, barra, mueble de obra o cualquier cosa que ocupa sitio y no se mueve.' },
   { type: 'tabique', name: 'Tabique / muro', category: 'arquitectura', w: 3, d: 0.15, h: 3, price: 0, color: '#e8e4dc', resizable: true },
   { type: 'puerta', name: 'Puerta de acceso', category: 'arquitectura', w: 1.6, d: 0.12, h: 2.2, price: 0, color: '#7b5a3c', wallMount: true },
   { type: 'salida', name: 'Salida de emergencia', category: 'arquitectura', w: 1.2, d: 0.12, h: 2.1, price: 0, color: '#2e7d32', wallMount: true, resizable: true },

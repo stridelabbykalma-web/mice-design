@@ -321,7 +321,7 @@ export function FurnitureMesh({ item, def, custom, wallHeight, lightsOn, twin = 
   // En un gemelo digital la arquitectura real ya está en el escaneo: solo se marca.
   if (twin && def.category === 'arquitectura') {
     const exit = item.type === 'salida';
-    const hh = item.type === 'columna' || item.type === 'tabique' ? item.h ?? wallHeight : h;
+    const hh = item.type === 'columna' || item.type === 'tabique' ? item.h ?? wallHeight : item.type === 'obstaculo' ? item.h ?? h : h;
     const y0 = item.type === 'ventana' ? 1.0 : 0;
     return (
       <group>
@@ -652,6 +652,8 @@ export function FurnitureMesh({ item, def, custom, wallHeight, lightsOn, twin = 
     }
     case 'columna':
       return <Box w={w} h={item.h ?? wallHeight} d={d} color={color} roughness={0.8} />;
+    case 'obstaculo':
+      return <Box w={w} h={item.h ?? h} d={d} color={color} roughness={0.85} />;
     case 'tabique':
       return <Box w={w} h={item.h ?? wallHeight} d={d} color={color} roughness={0.9} />;
     case 'puerta':

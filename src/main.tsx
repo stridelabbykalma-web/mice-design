@@ -30,6 +30,12 @@ if (!location.hash.startsWith('#p-')) {
   });
 }
 
+// Actualización automática: al abrir y al volver a la pestaña, si no hay un proyecto abierto
+import { checkForUpdate } from './lib/version';
+const idle = () => !useStore.getState().project;
+checkForUpdate(idle);
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkForUpdate(idle));
+
 // Gafas de realidad mixta / virtual (WebXR): comprobar si este navegador las admite
 import { detectXR, useXR } from './lib/xr';
 detectXR();

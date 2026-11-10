@@ -3,6 +3,8 @@ import { WalkScan, type P2, type P3 } from '../lib/walkScan';
 import { polygonArea } from '../lib/outline';
 
 /** Rayos de una cámara en una sala (polígono extruido) con suelo y techo: devuelve los puntos vistos. */
+type Box = { x0: number; x1: number; z0: number; z1: number; h: number };
+let BOXES: Box[] = [];
 export function castView(room: P2[], H: number, head: P3, yawDeg: number, noise = 0.02, cols = 24, rows = 18, pitchDeg = 0): P3[] {
   const pts: P3[] = [];
   const yaw = (yawDeg * Math.PI) / 180;
@@ -27,6 +29,26 @@ export function castView(room: P2[], H: number, head: P3, yawDeg: number, noise 
         const tt = ((p.x - head.x) * ez - (p.z - head.z) * ex) / den;
         const s = ((p.x - head.x) * d.z - (p.z - head.z) * d.x) / den;
         if (tt > 0.01 && s >= 0 && s <= 1) t = Math.min(t, tt);
+      }
+      for (const b of BOXES) {
+        // Intersección rayo-caja por planos (caja apoyada en el suelo)
+        let tn = 0;
+        let tf = Infinity;
+        for (const [o, dd, lo, hi] of [
+          [head.x, d.x, b.x0, b.x1],
+          [head.y, d.y, 0, b.h],
+          [head.z, d.z, b.z0, b.z1],
+        ]) {
+          if (Math.abs(dd) < 1e-9) {
+            if (o < lo || o > hi) tn = Infinity;
+            continue;
+          }
+          const a1 = (lo - o) / dd;
+          const a2 = (hi - o) / dd;
+          tn = Math.max(tn, Math.min(a1, a2));
+          tf = Math.min(tf, Math.max(a1, a2));
+        }
+        if (tn < tf && tn > 0.01) t = Math.min(t, tn);
       }
       if (!Number.isFinite(t)) continue;
       t += rnd();
@@ -173,5 +195,45 @@ describe('escaneo caminando (profundidad de las gafas)', () => {
     ]).outline()!;
     expect(Math.abs(r.area - 48)).toBeLessThan(48 * 0.08);
     expect(Math.max(...r.outline.map((p) => p.x))).toBeLessThan(4.4);
+  });
+
+  it('detecta un armario pegado a la pared y una mesa en medio de la sala', () => {
+    const room = [
+      { x: -4, z: -3 },
+      { x: 4, z: -3 },
+      { x: 4, z: 3 },
+      { x: -4, z: 3 },
+    ];
+    // Armario de 2 × 0,6 m y 2,1 m de alto en la pared del fondo; mesa de 1,6 × 0,8 m
+    BOXES = [
+      { x0: -1, x1: 1, z0: -3, z1: -2.4, h: 2.1 },
+      { x0: 0.2, x1: 1.8, z0: 0.6, z1: 1.4, h: 0.75 },
+    ];
+    try {
+      const scan = walk(room, 2.8, [
+        { x: -2.8, z: -1.2 },
+        { x: 2.8, z: -1.2 },
+        { x: 2.8, z: 2.2 },
+        { x: -2.8, z: 2.2 },
+        { x: -2.8, z: -1.2 },
+      ]);
+      const r = scan.outline()!;
+      expect(Math.abs(r.area - 48)).toBeLessThan(48 * 0.08);
+      const obs = scan.obstacles(r);
+      const near = (x: number, z: number) => obs.find((o) => Math.hypot(o.x - x, o.z - z) < 0.5);
+      const armario = near(0, -2.7)!;
+      expect(armario).toBeTruthy();
+      expect(Math.max(armario.w, armario.d)).toBeGreaterThan(1.7);
+      expect(Math.max(armario.w, armario.d)).toBeLessThan(2.4);
+      expect(armario.h).toBeGreaterThan(1.8);
+      const mesa = near(1, 1)!;
+      expect(mesa).toBeTruthy();
+      expect(mesa.h).toBeLessThan(1);
+      expect(Math.max(mesa.w, mesa.d)).toBeGreaterThan(1.3);
+      // Nada más: ni las manos ni el recorrido crean muebles
+      expect(obs.length).toBe(2);
+    } finally {
+      BOXES = [];
+    }
   });
 });

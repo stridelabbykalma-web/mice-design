@@ -1,3 +1,4 @@
+import { BUILD } from '../lib/version';
 import type { Project } from '../types';
 import { createCode, prettyCode, useAuth } from '../lib/auth';
 import { cloudReady } from '../lib/cloud';
@@ -63,17 +64,24 @@ export function XrButton() {
  * ordenador o un móvil explica cómo hacerlo. `create` crea y abre antes un proyecto nuevo
  * (pantalla de inicio); sin él se mide la sala del proyecto abierto.
  */
-export function HeadsetMeasure({ create, viewer }: { create?: () => Project; viewer?: boolean }) {
+export function HeadsetMeasure({ create, viewer }: { create?: (roomName: string) => Project; viewer?: boolean }) {
   const { supportsAR, mode } = useXR();
   const hotel = useAuth((a) => a.hotel);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState('');
+  const [roomName, setRoomName] = useState('');
+  const nameField = create ? (
+    <label className="field">
+      <span>Nombre de la sala</span>
+      <input value={roomName} placeholder="Por ejemplo: Salón Alhambra" onChange={(e) => setRoomName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+    </label>
+  ) : null;
   const start = async () => {
     setMsg('');
     setBusy(true);
     try {
-      if (create) useStore.getState().openProject(create());
+      if (create) useStore.getState().openProject(create(roomName));
       // La escena 3D tarda un instante en montarse al abrir el proyecto
       for (let i = 0; i < 40 && !sceneApi.enterXR; i++) await new Promise((r) => setTimeout(r, 100));
       if (!sceneApi.enterXR) throw new Error('La escena no ha terminado de cargar.');
@@ -92,7 +100,7 @@ export function HeadsetMeasure({ create, viewer }: { create?: () => Project; vie
     try {
       let id: string;
       if (create) {
-        const p = { ...create(), measureRequest: true };
+        const p = { ...create(roomName), measureRequest: true };
         await db.saveProject(p);
         id = p.id;
       } else {
@@ -112,11 +120,13 @@ export function HeadsetMeasure({ create, viewer }: { create?: () => Project; vie
   return (
     <div className="callout">
       <strong>🥽 Medir la sala con las gafas (Meta Quest 3 / 3S)</strong>
+      <span className="muted" style={{ float: 'right', fontSize: 11 }}>v. {BUILD}</span>
       {supportsAR && !viewer ? (
         <>
           <p className="hint">
             Ponte en la sala. Las gafas leen su escaneo (paredes, puertas, ventanas y techo) o lo hacen en el momento; después se guarda aquí y se diseña en el ordenador.
           </p>
+          {nameField}
           <button className="btn primary" disabled={busy || !!mode} onClick={start}>
             {create ? 'Crear una sala midiéndola con las gafas' : 'Medir esta sala con las gafas'}
           </button>
@@ -149,6 +159,7 @@ export function HeadsetMeasure({ create, viewer }: { create?: () => Project; vie
       ) : canCode ? (
         <>
           <p className="hint">Pide aquí un código, escríbelo en las gafas y te llevan directamente a medir la sala. El resultado aparece en este dispositivo.</p>
+          {nameField}
           <button className="btn primary" disabled={busy} onClick={getCode}>
             {busy ? 'Preparando…' : create ? 'Crear sala con las gafas: dame el código' : 'Medir esta sala con las gafas: dame el código'}
           </button>

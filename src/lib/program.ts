@@ -196,7 +196,7 @@ function presidencia(p: Project, items: Item[], seats: number): Item[] {
 /** Pista de baile: se retiran las mesas que pisa y se pone la pista, siempre dentro de la sala. */
 function withDanceFloor(p: Project, items: Item[]): Item[] {
   const { width: W, depth: D } = p.space;
-  const blockers = items.filter((i) => i.type === 'escenario' || i.type === 'columna' || i.type === 'tabique').map((i) => obbOf(i, findDef(i.type, p.customCatalog), false));
+  const blockers = items.filter((i) => i.type === 'escenario' || i.type === 'columna' || i.type === 'tabique' || i.type === 'obstaculo').map((i) => obbOf(i, findDef(i.type, p.customCatalog), false));
   let best: { x: number; z: number; size: number } | null = null;
   // Lo más grande que quepa (de 8 m a 3 m), lo más cerca posible del frente y centrado
   for (let size = Math.max(2, Math.min(8, W * 0.35, D * 0.5)); size >= 2 && !best; size -= 0.5) {

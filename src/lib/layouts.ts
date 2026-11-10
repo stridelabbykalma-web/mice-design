@@ -91,7 +91,7 @@ function layoutOnce(project: Project, o0: LayoutOptions, compact: boolean): { it
       const c = exitClearance(it, d, 1.5);
       obstacles.push({ ...c, w: Math.max(c.w, 1.6) });
     }
-    else if (it.type === 'columna' || it.type === 'tabique') {
+    else if (it.type === 'columna' || it.type === 'tabique' || it.type === 'obstaculo') {
       const dims = itemDims(it, d);
       obstacles.push({ x: it.x, z: it.z, w: dims.w + 0.3, d: dims.d + 0.3, rot: it.rot });
     }
