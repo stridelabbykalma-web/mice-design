@@ -449,11 +449,12 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         lastDepth.current = now;
         const r = depth.read(frame, ref);
         if (!r || depth.error) {
-          // Sin profundidad utilizable: se vuelve al escaneo de las gafas
+          // Sin profundidad utilizable: se pasa a marcar las esquinas (lo que siempre funciona)
           noDepth.current = true;
-          capture.current = { state: 'none', at: 0 };
-          started.current = now - 1500;
-          useXR.setState({ step: 3, message: depth.error || 'Estas gafas no dan el mapa de profundidad: se usa su escaneo de la sala' });
+          capture.current = { state: 'failed', at: now };
+          points.current = [];
+          guide.set([]);
+          useXR.setState({ step: 4, message: `${depth.error || 'Estas gafas no dan el mapa de profundidad al navegador'}\n${MANUAL}\nBotón lateral: usar el escaneo de las gafas` });
         } else {
           if (r.pts.length) walk.current.addFrame(r.head, r.pts);
           if (now - lastOutline.current > 1000) {
@@ -501,10 +502,19 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
               });
             };
             if (cap.state === 'none' && waited > 1500) {
-              // Preferencia: escaneo caminando (profundidad); si no, el de las gafas; si no, esquinas
+              // Preferencia: escaneo caminando (profundidad); si no, marcar las esquinas. El escaneo
+              // de las gafas (Meta) no se abre solo: falla a menudo y se hace desde un punto.
               if (hasDepth()) startWalk();
-              else if (!startCapture()) manual();
-            } else if (cap.state === 'failed' || (cap.state === 'done' && now - cap.at > 5000)) manual();
+              else {
+                points.current = [];
+                capture.current = { state: 'failed', at: now };
+                useXR.setState({ step: 4, message: `Sin mapa de profundidad en este navegador: mide marcando las esquinas\n${MANUAL}\nBotón lateral: usar el escaneo de las gafas` });
+              }
+            } else if (cap.state === 'failed' || (cap.state === 'done' && now - cap.at > 5000)) {
+              // El escaneo de las gafas ha fallado o se ha cancelado
+              if (hasDepth()) startWalk();
+              else manual();
+            }
           }
         } else if (st.task === 'ver' && !fitted.current && st.step === 0) {
           const sp = useStore.getState().project?.space;
