@@ -121,4 +121,41 @@ describe('medir la sala con las gafas', () => {
     const c = parseRoomPlan(planesToRoomPlan(currentRoomPlanes(noFloor, toWorld(9, 0))));
     expect([c.width, c.depth]).toEqual([6, 5]);
   });
+
+  it('caso real (Quest 3S): dos habitaciones separadas por un tabique de 15 cm', () => {
+    // Medidas tomadas de un escaneo real: la app las unía en una «sala» de 10,2 × 5,2 m
+    const A = [
+      { x: -0.6, z: -2.6 },
+      { x: -5.09, z: -2.59 },
+      { x: -5.1, z: 2.5 },
+      { x: -0.6, z: 2.57 },
+    ];
+    const B = [
+      { x: -0.45, z: -0.09 },
+      { x: 5.1, z: -0.09 },
+      { x: 5.09, z: 2.59 },
+      { x: -0.45, z: 2.57 },
+    ];
+    const roomPlanes = (c: { x: number; z: number }[], h: number): ScanPlane[] => [
+      ...c.map((a, i) => wall(a, c[(i + 1) % c.length], 'wall', 0, h)),
+      { label: 'floor', orientation: 'horizontal', points: c.map((q) => ({ ...q, y: 0 })) },
+      { label: 'ceiling', orientation: 'horizontal', points: c.map((q) => ({ ...q, y: h })) },
+    ];
+    const door = wall({ x: -0.6, z: -1.67 }, { x: -0.6, z: -0.81 }, 'door', 0, 2.15);
+    const doorB = wall({ x: -0.58, z: -1.68 }, { x: -0.58, z: -0.8 }, 'door', 0, 2.15);
+    const window = wall({ x: 5.1, z: 1.56 }, { x: 5.1, z: 2.16 }, 'window', 1, 2.05);
+    const all = [...roomPlanes(A, 2.52), ...roomPlanes(B, 2.52), door, doorB, window];
+    for (const withFloor of [true, false]) {
+      const src = withFloor ? all : all.filter((p) => p.label !== 'floor');
+      const b = parseRoomPlan(planesToRoomPlan(currentRoomPlanes(src, { x: 2, z: 1.2 })));
+      expect([b.width, b.depth].map((v) => Math.round(v * 10) / 10), `B ${withFloor}`).toEqual([5.6, 2.7]);
+      expect(b.outline, `B ${withFloor}`).toBeUndefined();
+      expect(b.items.filter((i) => i.type === 'ventana'), `B ${withFloor}`).toHaveLength(1);
+      expect(b.items.filter((i) => i.type === 'puerta' || i.type === 'tabique'), `B ${withFloor}`).toHaveLength(0);
+      const a = parseRoomPlan(planesToRoomPlan(currentRoomPlanes(src, { x: -3, z: 0.3 })));
+      expect([a.width, a.depth].map((v) => Math.round(v * 10) / 10).sort(), `A ${withFloor}`).toEqual([4.5, 5.2]);
+      expect(a.items.filter((i) => i.type === 'puerta'), `A ${withFloor}`).toHaveLength(1);
+      expect(a.items.filter((i) => i.type === 'ventana' || i.type === 'tabique'), `A ${withFloor}`).toHaveLength(0);
+    }
+  });
 });

@@ -500,11 +500,13 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         // Solo la sala en la que se está (las gafas guardan también las contiguas)
         const hp = frame.getViewerPose(ref)?.transform.position;
         let all = readPlanes(frame, ref);
-        // Al medir no se usan las salas que las gafas tuvieran guardadas de antes: solo lo que
-        // se escanee ahora desde la app (botón lateral), y de eso, lo creado en este escaneo.
+        // Al medir, con escaneo caminando disponible no se usan las salas que las gafas tuvieran
+        // guardadas de antes; sin él, se aprovecha la de la habitación en la que se está. Tras
+        // pedir el escaneo de las gafas (botón lateral) solo cuenta lo creado en ese escaneo.
         if (st.task === 'medir') {
-          if (!useMeta.current) all = [];
-          else {
+          if (!useMeta.current) {
+            if (hasDepth()) all = [];
+          } else {
             const fresh = all.filter((x) => (x.changed ?? 0) >= capture.current.started - 500);
             if (fresh.some((x) => x.label === 'wall')) all = fresh;
           }

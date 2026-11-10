@@ -55,6 +55,13 @@ function verticalSurface(points: V3[]) {
   return { dimensions: [maxT - minT, maxY - minY, 0], transform };
 }
 
+/** La misma puerta o ventana vista desde dos habitaciones aparece dos veces: se deja una. */
+function unique<T extends { transform: number[] }>(list: T[]): T[] {
+  const out: T[] = [];
+  for (const s of list) if (!out.some((o) => Math.hypot(o.transform[12] - s.transform[12], o.transform[14] - s.transform[14]) < 0.4 && Math.abs(o.transform[13] - s.transform[13]) < 0.5)) out.push(s);
+  return out;
+}
+
 /** Convierte los planos de las gafas en una medición como la del iPhone. */
 export function planesToRoomPlan(planes: ScanPlane[]): RoomPlanFile {
   const vert = (l: string) => planes.filter((p) => p.orientation === 'vertical' && p.label === l && p.points.length >= 3);
@@ -78,8 +85,8 @@ export function planesToRoomPlan(planes: ScanPlane[]): RoomPlanFile {
     format: 'mice-roomplan',
     version: 1,
     walls,
-    doors: vert('door').map((p) => verticalSurface(p.points)),
-    windows: vert('window').map((p) => verticalSurface(p.points)),
+    doors: unique(vert('door').map((p) => verticalSurface(p.points))),
+    windows: unique(vert('window').map((p) => verticalSurface(p.points))),
   };
 }
 
@@ -231,6 +238,38 @@ function cross(a: P, b: P, c: P, d: P) {
 }
 
 /**
+ * Las dos caras de un mismo tabique (la de esta sala y la de la contigua) son dos paredes
+ * paralelas a 10-25 cm. Se deja la que tiene mejor puntuación (menor `score` de su centro).
+ */
+function dropTwinWalls(planes: ScanPlane[], score: (mid: P) => number): ScanPlane[] {
+  const walls = planes.filter((p) => p.orientation === 'vertical' && p.label === 'wall' && p.points.length >= 3);
+  const seg = new Map(walls.map((w) => [w, wallSegments([w])[0]]));
+  const drop = new Set<ScanPlane>();
+  for (const a of walls)
+    for (const b of walls) {
+      const sa = seg.get(a);
+      const sb = seg.get(b);
+      if (a === b || !sa || !sb || drop.has(a) || drop.has(b)) continue;
+      const la = Math.hypot(sa.b.x - sa.a.x, sa.b.z - sa.a.z);
+      const ux = (sa.b.x - sa.a.x) / la;
+      const uz = (sa.b.z - sa.a.z) / la;
+      // b proyectada sobre a: distancia perpendicular de sus extremos y tramo que comparten
+      const perp = (q: P) => Math.abs((q.x - sa.a.x) * uz - (q.z - sa.a.z) * ux);
+      const t = (q: P) => (q.x - sa.a.x) * ux + (q.z - sa.a.z) * uz;
+      if (perp(sb.a) > 0.3 || perp(sb.b) > 0.3) continue;
+      const t0 = Math.min(t(sb.a), t(sb.b));
+      const t1 = Math.max(t(sb.a), t(sb.b));
+      const shared = Math.min(la, t1) - Math.max(0, t0);
+      if (shared < 0.6 * Math.min(la, t1 - t0)) continue;
+      const mid = (g: Seg) => ({ x: (g.a.x + g.b.x) / 2, z: (g.a.z + g.b.z) / 2 });
+      // Se quita la peor; con la misma puntuación, la más corta
+      const worse = Math.abs(score(mid(sa)) - score(mid(sb))) > 0.02 ? (score(mid(sa)) > score(mid(sb)) ? a : b) : la < t1 - t0 ? a : b;
+      drop.add(worse);
+    }
+  return planes.filter((p) => !drop.has(p));
+}
+
+/**
  * Las gafas guardan varias salas (también las contiguas) y las devuelven todas juntas. Se
  * dejan solo los planos de la sala en la que está la persona:
  *  · si hay planos de suelo, la sala es el suelo que tiene debajo (o el más cercano) y sus
@@ -245,14 +284,14 @@ export function currentRoomPlanes(planes: ScanPlane[], head: P): ScanPlane[] {
     const floor = floors.find((f) => pointInPoly(head, flat(f))) ?? [...floors].sort((a, b) => distToPoly(head, flat(a)) - distToPoly(head, flat(b)))[0];
     const poly = flat(floor);
     const near = (p: P, tol: number) => pointInPoly(p, poly) || distToPoly(p, poly) < tol;
-    return planes.filter((pl) => {
+    return dropTwinWalls(planes.filter((pl) => {
       if (pl === floor) return true;
       if (pl.label === 'floor') return false;
       const m = mid(pl);
       // Verticales (paredes, puertas, ventanas): justo en el borde de este suelo (la pared de la
       // sala contigua queda al otro lado del tabique, a más de 12 cm). El resto, encima de él.
-      return pl.orientation === 'vertical' ? distToPoly(m, poly) < 0.12 : near(m, 0.3);
-    });
+      return pl.orientation === 'vertical' ? distToPoly(m, poly) < 0.2 : near(m, 0.3);
+    }), (m) => distToPoly(m, poly));
   }
   const walls = planes.filter((p) => p.orientation === 'vertical' && p.label === 'wall' && p.points.length >= 3);
   if (walls.length <= 4) return planes;
@@ -260,5 +299,5 @@ export function currentRoomPlanes(planes: ScanPlane[], head: P): ScanPlane[] {
   const visible = (m: P) => !segs.some((g) => cross(head, m, g.a, g.b));
   const keep = planes.filter((pl) => pl.orientation !== 'vertical' || visible({ x: head.x + (mid(pl).x - head.x) * 0.97, z: head.z + (mid(pl).z - head.z) * 0.97 }));
   // Si el filtro deja menos de tres paredes, mejor no filtrar
-  return keep.filter((p) => p.label === 'wall').length >= 3 ? keep : planes;
+  return keep.filter((p) => p.label === 'wall').length >= 3 ? dropTwinWalls(keep, (m) => Math.hypot(m.x - head.x, m.z - head.z)) : planes;
 }

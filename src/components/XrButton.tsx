@@ -81,12 +81,22 @@ export function HeadsetMeasure({ create, viewer }: { create?: (roomName: string)
     setMsg('');
     setBusy(true);
     try {
-      if (create) useStore.getState().openProject(create(roomName));
+      const fresh = create ? create(roomName) : null;
+      if (fresh) useStore.getState().openProject(fresh);
       // La escena 3D tarda un instante en montarse al abrir el proyecto
       for (let i = 0; i < 40 && !sceneApi.enterXR; i++) await new Promise((r) => setTimeout(r, 100));
       if (!sceneApi.enterXR) throw new Error('La escena no ha terminado de cargar.');
       await sceneApi.enterXR('ar', 'medir');
       logEvent('gafas', 'medir la sala');
+      // Si se sale de las gafas sin guardar ninguna medida, la sala recién creada (vacía) se
+      // borra para no llenar la lista de salas sin medir.
+      if (fresh)
+        sceneApi.gl?.xr.getSession()?.addEventListener('end', () => {
+          const cur = useStore.getState().project;
+          if (cur?.id !== fresh.id || cur.items.length || cur.space.outline || cur.space.width !== fresh.space.width || cur.space.depth !== fresh.space.depth) return;
+          useStore.getState().closeProject();
+          db.deleteProject(fresh.id).then(() => window.dispatchEvent(new CustomEvent('mice-deleted', { detail: { kind: 'project', id: fresh.id } })));
+        });
     } catch (x) {
       setMsg(`${(x as Error).message} Si el proyecto ya está abierto, usa el botón «🥽 Gafas» de arriba y elige «Medir esta sala con las gafas».`);
     } finally {
