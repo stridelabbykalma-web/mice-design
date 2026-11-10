@@ -118,6 +118,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   const anchor = useRef<any>(null);
   const pendingAnchor = useRef(false);
   const fitted = useRef(false);
+  const unbounded = useRef<{ base: XRReferenceSpace; floor: XRReferenceSpace; done: boolean } | null>(null);
   const btnA = useRef(false);
   const btnB = useRef(false);
   /** Las gafas tienen guardadas más salas además de esta. */
@@ -346,7 +347,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       const measuring = m === 'ar' && task === 'medir' && !!XRB && 'createProjectionLayer' in XRB.prototype;
       const init = {
         requiredFeatures: ['local-floor'],
-        optionalFeatures: ['hand-tracking', 'bounded-floor', 'plane-detection', 'anchors', ...(measuring ? ['depth-sensing'] : [])],
+        optionalFeatures: ['hand-tracking', 'bounded-floor', 'plane-detection', 'anchors', ...(m === 'ar' ? ['unbounded'] : []), ...(measuring ? ['depth-sensing'] : [])],
         ...(measuring ? { depthSensing: DEPTH_INIT } : {}),
       };
       const kind = m === 'ar' ? 'immersive-ar' : 'immersive-vr';
@@ -355,7 +356,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       // fotograma. Se vuelve a abrir la sesión sin profundidad.
       if (measuring && session.enabledFeatures?.includes('depth-sensing') && session.renderState.layers === undefined) {
         await session.end();
-        session = await xr.requestSession(kind, { requiredFeatures: ['local-floor'], optionalFeatures: ['hand-tracking', 'bounded-floor', 'plane-detection', 'anchors'] });
+        session = await xr.requestSession(kind, { requiredFeatures: ['local-floor'], optionalFeatures: ['hand-tracking', 'bounded-floor', 'plane-detection', 'anchors', 'unbounded'] });
         depthAsked.current = false;
       } else depthAsked.current = measuring;
       gl.xr.setReferenceSpaceType('local-floor');
@@ -364,6 +365,18 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       gl.xr.setFramebufferScaleFactor(1.2);
       gl.xr.setFoveation(0.6);
       await gl.xr.setSession(session);
+      // Sin límite de zona de juego: en realidad mixta se pide el espacio «unbounded» para poder
+      // caminar por toda la sala (con el espacio normal, al salir del círculo de seguridad de
+      // las gafas la app deja de verse). Su origen no está en el suelo: se corrige en el
+      // primer fotograma comparándolo con el espacio de suelo.
+      unbounded.current = null;
+      if (m === 'ar') {
+        try {
+          unbounded.current = { base: await session.requestReferenceSpace('unbounded'), floor: await session.requestReferenceSpace('local-floor'), done: false };
+        } catch {
+          unbounded.current = null;
+        }
+      }
       started.current = performance.now();
       fitted.current = false;
       capture.current = { state: 'none', at: 0, started: 0 };
@@ -403,6 +416,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         root.current?.rotation.set(0, 0, 0);
         points.current = [];
         anchor.current = null;
+        unbounded.current = null;
         guide.set([]);
         if (root.current) root.current.visible = true;
         useXR.setState({ mode: null, task: 'ver', step: 0, message: '' });
@@ -416,6 +430,16 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   useFrame((_, __, xrFrame) => {
     if (!mode) return;
     const frame = xrFrame as AnyFrame | undefined;
+    // Paso al espacio sin límites, con el origen llevado al suelo y a la misma posición y
+    // orientación que el espacio normal (para que nada salte de sitio)
+    const ub = unbounded.current;
+    if (frame && ub && !ub.done) {
+      const off = frame.getPose(ub.floor, ub.base);
+      if (off) {
+        ub.done = true;
+        gl.xr.setReferenceSpace(ub.base.getOffsetReferenceSpace(off.transform));
+      }
+    }
     const ref = gl.xr.getReferenceSpace();
     const g = root.current;
     const st = useXR.getState();
