@@ -15,6 +15,8 @@ import { useStore } from '../store';
 import { alignFromCorners, frontCorners, saveAnchor, savedAnchor, useXR, type XrMode } from '../lib/xr';
 import { cornersToRoomPlan, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
 import { parseRoomPlan } from '../lib/roomplan';
+import { WalkScan, type WalkOutline } from '../lib/walkScan';
+import { DEPTH_INIT, makeDepthReader } from '../lib/xrDepth';
 import { logEvent } from '../lib/usageLog';
 import { sceneApi } from './sceneApi';
 
@@ -117,6 +119,17 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
   const pendingAnchor = useRef(false);
   const fitted = useRef(false);
   const btnA = useRef(false);
+  const btnB = useRef(false);
+  // Escaneo caminando con el mapa de profundidad de las gafas
+  const depth = useMemo(() => makeDepthReader(gl), [gl]);
+  const walk = useRef(new WalkScan());
+  const walkResult = useRef<WalkOutline | null>(null);
+  const lastDepth = useRef(0);
+  const lastOutline = useRef(0);
+  /** La profundidad no está disponible o no es fiable en estas gafas. */
+  const noDepth = useRef(false);
+  /** Esta sesión se abrió pidiendo profundidad (y no hubo que reabrirla sin ella). */
+  const depthAsked = useRef(false);
   /** Escaneo de la sala lanzado por la app (la propia herramienta de escaneo de las gafas). */
   const capture = useRef<{ state: 'none' | 'running' | 'done' | 'failed'; at: number }>({ state: 'none', at: 0 });
   const reticle = useMemo(() => {
@@ -167,6 +180,24 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
     } catch (e) {
       useXR.setState({ message: (e as Error).message });
     }
+  };
+
+  const hasDepth = () => {
+    try {
+      return depthAsked.current && !noDepth.current && !!(gl.xr.getSession() as (XRSession & { depthUsage?: string }) | null)?.depthUsage;
+    } catch {
+      return false;
+    }
+  };
+  /** Empieza (o reinicia) el escaneo caminando. */
+  const startWalk = () => {
+    walk.current = new WalkScan();
+    walkResult.current = null;
+    depth.reset();
+    points.current = [];
+    guide.set([]);
+    capture.current = { state: 'failed', at: performance.now() };
+    useXR.setState({ step: 5, message: 'Escaneo caminando: mira un momento al suelo\ny después camina por toda la sala mirando a las paredes' });
   };
 
   /** Abre el escaneo de la sala de las gafas desde la app (Quest: Configuración del espacio). */
@@ -224,6 +255,11 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         if (st.step === 3) {
           // Guardar la sala que han detectado las gafas
           if (scanned.current.some((x) => x.label === 'wall')) saveScan(planesToRoomPlan(scanned.current), 'escaneo de las gafas');
+          return;
+        }
+        if (st.step === 5) {
+          const o = walkResult.current;
+          if (o) saveScan(cornersToRoomPlan(o.outline, walk.current.ceiling ?? sp.height), 'escaneo caminando');
           return;
         }
         if (st.step === 4) {
@@ -291,11 +327,26 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
     sceneApi.enterXR = async (m: XrMode, task: 'ver' | 'medir' = 'ver') => {
       const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
       if (!xr) throw new Error('Este navegador no admite gafas de realidad virtual o mixta.');
-      const session = await xr.requestSession(m === 'ar' ? 'immersive-ar' : 'immersive-vr', {
+      // plane-detection: el escaneo de la sala de las gafas; anchors: recordar la posición;
+      // depth-sensing (solo al medir): mapa de profundidad para el escaneo caminando.
+      // La profundidad solo se pide donde el navegador usa capas WebXR (Quest): sin ellas, la
+      // biblioteca 3D falla al leerla.
+      const XRB = (window as unknown as { XRWebGLBinding?: { prototype: object } }).XRWebGLBinding;
+      const measuring = m === 'ar' && task === 'medir' && !!XRB && 'createProjectionLayer' in XRB.prototype;
+      const init = {
         requiredFeatures: ['local-floor'],
-        // plane-detection: el escaneo de la sala de las gafas; anchors: recordar la posición.
-        optionalFeatures: ['hand-tracking', 'bounded-floor', 'plane-detection', 'anchors'],
-      });
+        optionalFeatures: ['hand-tracking', 'bounded-floor', 'plane-detection', 'anchors', ...(measuring ? ['depth-sensing'] : [])],
+        ...(measuring ? { depthSensing: DEPTH_INIT } : {}),
+      };
+      const kind = m === 'ar' ? 'immersive-ar' : 'immersive-vr';
+      let session = await xr.requestSession(kind, init as XRSessionInit);
+      // Profundidad concedida pero sin capas WebXR: la biblioteca 3D fallaría en cada
+      // fotograma. Se vuelve a abrir la sesión sin profundidad.
+      if (measuring && session.enabledFeatures?.includes('depth-sensing') && session.renderState.layers === undefined) {
+        await session.end();
+        session = await xr.requestSession(kind, { requiredFeatures: ['local-floor'], optionalFeatures: ['hand-tracking', 'bounded-floor', 'plane-detection', 'anchors'] });
+        depthAsked.current = false;
+      } else depthAsked.current = measuring;
       gl.xr.setReferenceSpaceType('local-floor');
       // Algo más de resolución que la nativa (bordes más nítidos, sobre todo en Quest 3S)
       // y renderizado foveado para compensar el coste en la periferia de la vista.
@@ -305,6 +356,8 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       started.current = performance.now();
       fitted.current = false;
       capture.current = { state: 'none', at: 0 };
+      noDepth.current = false;
+      walkResult.current = null;
       anchor.current = null;
       scanned.current = [];
       useXR.setState({
@@ -360,16 +413,24 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
     // Botón A o X durante la medición: pasar a marcar las esquinas caminando
     if (mode === 'ar' && st.task === 'medir') {
       let pressed = false;
+      let pressedB = false;
       gl.xr.getSession()?.inputSources.forEach((src) => {
         if (src.gamepad?.buttons[4]?.pressed) pressed = true;
+        if (src.gamepad?.buttons[5]?.pressed) pressedB = true;
       });
-      if (pressed && !btnA.current && st.step === 3) {
+      if (pressed && !btnA.current && (st.step === 3 || st.step === 5)) {
         points.current = [];
         guide.set([]);
         capture.current = { state: 'failed', at: now };
         useXR.setState({ step: 4, message: MANUAL });
       }
       btnA.current = pressed;
+      // Botón B o Y: escaneo caminando
+      if (pressedB && !btnB.current && st.step !== 5) {
+        if (hasDepth()) startWalk();
+        else useXR.setState({ message: 'Estas gafas o este navegador no dan el mapa de profundidad:\nusa el escaneo de las gafas (botón lateral) o marca las esquinas (A o X)' });
+      }
+      btnB.current = pressedB;
     }
     if (frame && ref && g && mode === 'ar') {
       // Anclaje guardado: el montaje sigue su posición (las gafas la corrigen con el tiempo)
@@ -378,6 +439,35 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         if (pose) {
           const mtx = new THREE.Matrix4().fromArray(pose.transform.matrix);
           mtx.decompose(g.position, g.quaternion, g.scale);
+        }
+      }
+      if (st.task === 'medir' && st.step === 5) depth.track(frame, ref);
+      // Escaneo caminando: muestras de profundidad varias veces por segundo
+      if (st.task === 'medir' && st.step === 5 && now - lastDepth.current > 120) {
+        lastDepth.current = now;
+        const r = depth.read(frame, ref);
+        if (!r || depth.error) {
+          // Sin profundidad utilizable: se vuelve al escaneo de las gafas
+          noDepth.current = true;
+          capture.current = { state: 'none', at: 0 };
+          started.current = now - 1500;
+          useXR.setState({ step: 3, message: depth.error || 'Estas gafas no dan el mapa de profundidad: se usa su escaneo de la sala' });
+        } else {
+          if (r.pts.length) walk.current.addFrame(r.head, r.pts);
+          if (now - lastOutline.current > 1000) {
+            lastOutline.current = now;
+            const o = depth.mode ? walk.current.outline() : null;
+            walkResult.current = o;
+            guide.set(o ? o.outline.map((a, i) => ({ a, b: o.outline[(i + 1) % o.outline.length] })) : []);
+            const h = walk.current.ceiling;
+            useXR.setState({
+              message: !depth.mode
+                ? 'Escaneo caminando: mira un momento al suelo\ny después camina por toda la sala mirando a las paredes'
+                : o
+                  ? `Sala vista: ${fm(o.area)} m²${h ? `, techo a ${fm(h)} m` : ''}. Sigue caminando hasta que la línea verde\nrodee toda la sala. Gatillo: guardar · Botón lateral: escaneo de las gafas · A o X: esquinas`
+                  : `Camina por la sala mirando a las paredes (${fm(walk.current.seenArea)} m² vistos)\nLa línea verde aparecerá al ver paredes suficientes`,
+            });
+          }
         }
       }
       // Leer el escaneo de las gafas una vez por segundo
@@ -392,7 +482,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
           if (segs.length) {
             const r = parseRoomPlan(planesToRoomPlan(scanned.current));
             useXR.setState({
-              message: `Sala detectada: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes. Gatillo: guardarla\nSi falta una parte: botón lateral, escanear de nuevo (camina por la sala)\nBotón A o X: medirla caminando, marcando las esquinas`,
+              message: `Las gafas ya tienen una sala: ${fm(r.width)} × ${fm(r.depth)} m, ${segs.length} paredes. Gatillo: guardarla\nBotón B o Y: escanear caminando · Botón lateral: repetir el escaneo de las gafas\nBotón A o X: marcar las esquinas a mano`,
             });
           } else {
             // Sin escaneo: las gafas lo hacen ahora; si no pueden, se marcan las esquinas a mano.
@@ -405,7 +495,9 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
               });
             };
             if (cap.state === 'none' && waited > 1500) {
-              if (!startCapture()) manual();
+              // Preferencia: escaneo caminando (profundidad); si no, el de las gafas; si no, esquinas
+              if (hasDepth()) startWalk();
+              else if (!startCapture()) manual();
             } else if (cap.state === 'failed' || (cap.state === 'done' && now - cap.at > 5000)) manual();
           }
         } else if (st.task === 'ver' && !fitted.current && st.step === 0) {

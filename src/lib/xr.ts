@@ -14,9 +14,10 @@ interface XrState {
   task: 'ver' | 'medir';
   /**
    * Realidad mixta: 0 = marcar esquina izquierda, 1 = derecha, 2 = alineado.
-   * Medir: 3 = leyendo el escaneo de las gafas, 4 = marcando esquinas a mano.
+   * Medir: 3 = leyendo el escaneo de las gafas, 4 = marcando esquinas a mano,
+   * 5 = escaneo caminando (profundidad).
    */
-  step: 0 | 1 | 2 | 3 | 4;
+  step: 0 | 1 | 2 | 3 | 4 | 5;
   /** Mensaje que se muestra dentro de las gafas. */
   message: string;
 }
