@@ -18,6 +18,7 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
 using Meta.XR.MRUtilityKit;
+using Meta.XR.EnvironmentDepth;
 
 public class MiceScan : MonoBehaviour
 {
@@ -59,6 +60,17 @@ public class MiceScan : MonoBehaviour
     {
         var rig = FindFirstObjectByType<OVRCameraRig>();
         head = rig != null ? rig.centerEyeAnchor : Camera.main.transform;
+
+        // Permiso de datos de la sala (lo pide el mapa de profundidad); sale un aviso la primera vez
+#if UNITY_ANDROID && !UNITY_EDITOR
+        const string scenePermission = "com.oculus.permission.USE_SCENE";
+        if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(scenePermission))
+            UnityEngine.Android.Permission.RequestUserPermission(scenePermission);
+#endif
+        // Mapa de profundidad: si la escena no tiene el bloque Occlusion, se activa aquí
+        var depth = FindFirstObjectByType<EnvironmentDepthManager>();
+        if (depth == null) depth = gameObject.AddComponent<EnvironmentDepthManager>();
+        depth.enabled = true;
 
         raycaster = FindFirstObjectByType<EnvironmentRaycastManager>();
         if (raycaster == null) raycaster = gameObject.AddComponent<EnvironmentRaycastManager>();
