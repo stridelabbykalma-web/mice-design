@@ -22,6 +22,22 @@ const MIN_FRAMES = 3;
 const DOOR = 2.5;
 const key = (ix: number, iz: number) => (ix + OFF) * 8192 + (iz + OFF);
 
+/** Rejillas del escaneo caminando en formato de intercambio (celdas de 10 cm, enteros). */
+export interface WalkGrids {
+  cell: number;
+  /** Por fila: [iz, x0, x1, x0, x1…] tramos de celdas de suelo visto. */
+  free: number[][];
+  /** Celdas de pared: [ix, iz, ix, iz…]. */
+  wall: number[];
+  /** Celdas con algo que ocupa sitio: [ix, iz, altura en cm…]. */
+  obj: number[];
+  /** Por dónde se ha caminado, en cm: [x, z, x, z…]. */
+  path: number[];
+  /** Altura del techo en metros. */
+  ceiling?: number;
+  frames?: number;
+}
+
 export interface WalkOutline {
   outline: P2[];
   /** m² de la sala reconstruida. */
@@ -100,6 +116,58 @@ export class WalkScan {
     const out: number[] = [];
     for (const [k, n] of this.free) if (n >= MIN_FRAMES) out.push(k);
     return out;
+  }
+
+  /**
+   * Reconstruye el escaneo a partir de las rejillas que envía la app nativa de las gafas
+   * (MICE Scan), que acumula las mismas celdas que `addFrame` y las manda ya filtradas.
+   */
+  static fromGrids(g: WalkGrids): WalkScan {
+    const w = new WalkScan();
+    // Suelo visto: por filas, tramos [x0, x1] de celdas seguidas
+    for (const row of g.free) for (let i = 1; i + 1 < row.length; i += 2) for (let x = row[i]; x <= row[i + 1]; x++) w.free.set(key(x, row[0]), MIN_FRAMES);
+    for (let i = 0; i + 1 < g.wall.length; i += 2) w.wall.set(key(g.wall[i], g.wall[i + 1]), MIN_FRAMES);
+    for (let i = 0; i + 2 < g.obj.length; i += 3) {
+      const k = key(g.obj[i], g.obj[i + 1]);
+      w.obj.set(k, MIN_FRAMES);
+      w.objH.set(k, g.obj[i + 2] / 100);
+    }
+    for (let i = 0; i + 1 < g.path.length; i += 2) w.path.push({ x: g.path[i] / 100, z: g.path[i + 1] / 100 });
+    if (g.ceiling) w.ceil.set(Math.round(g.ceiling / 0.05), 1000);
+    w.frames = g.frames ?? 0;
+    return w;
+  }
+
+  /** Las rejillas en el formato de intercambio (lo mismo que envía la app nativa). */
+  toGrids(): WalkGrids {
+    const rows = new Map<number, number[]>();
+    for (const [k, n] of this.free) {
+      if (n < MIN_FRAMES) continue;
+      const iz = (k % 8192) - OFF;
+      if (!rows.has(iz)) rows.set(iz, []);
+      rows.get(iz)!.push(Math.floor(k / 8192) - OFF);
+    }
+    const free: number[][] = [];
+    for (const [iz, xs] of rows) {
+      xs.sort((a, b) => a - b);
+      const row = [iz];
+      let x0 = xs[0];
+      let prev = xs[0];
+      for (let i = 1; i <= xs.length; i++) {
+        if (i < xs.length && xs[i] === prev + 1) {
+          prev = xs[i];
+          continue;
+        }
+        row.push(x0, prev);
+        x0 = prev = xs[i];
+      }
+      free.push(row);
+    }
+    const wall: number[] = [];
+    for (const [k, n] of this.wall) if (n >= MIN_FRAMES) wall.push(Math.floor(k / 8192) - OFF, (k % 8192) - OFF);
+    const obj: number[] = [];
+    for (const [k, n] of this.obj) if (n >= MIN_FRAMES) obj.push(Math.floor(k / 8192) - OFF, (k % 8192) - OFF, Math.round((this.objH.get(k) ?? 1) * 100));
+    return { cell: CELL, free, wall, obj, path: this.path.flatMap((p) => [Math.round(p.x * 100), Math.round(p.z * 100)]), ceiling: this.ceiling, frames: this.frames };
   }
 
   /** m² de suelo visto hasta ahora. */

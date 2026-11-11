@@ -1,3 +1,5 @@
+import { importScan } from '../lib/scanImport';
+import { rpc } from '../lib/cloud';
 import { HeadsetMeasure } from './XrButton';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -87,6 +89,7 @@ export default function SpacePanel() {
         {!space.outdoor && <ShapeEditor />}
         <SaveRoom />
         <HeadsetMeasure viewer={readOnly} />
+        <ScanCodeImport />
         <RoomPlanImport />
         <div className="callout">
           <strong>📏 ¿No tienes las medidas?</strong>
@@ -657,6 +660,44 @@ function RealSurfaces() {
         Coger un color del espacio (cuentagotas)
       </button>
     </Section>
+  );
+}
+
+/** Recoge con su código el escaneo hecho con la app nativa de las gafas (MICE Scan). */
+function ScanCodeImport() {
+  const updateSpace = useStore((s) => s.updateSpace);
+  const addItems = useStore((s) => s.addItems);
+  const height = useStore((s) => s.project!.space.height);
+  const [code, setCode] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const take = async () => {
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = importScan(await rpc<unknown>('scan_take', { p_code: code }), height);
+      updateSpace({ width: r.width, depth: r.depth, height: r.height, outline: r.outline, method: 'fotogrametria', ...(r.name ? { name: r.name } : {}) });
+      addItems([...r.items.map(({ id: _id, ...it }) => it), ...r.fixed], ['puerta', 'salida', 'ventana', 'tabique', 'obstaculo']);
+      setMsg(r.summary);
+      setCode('');
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="callout">
+      <strong>🥽 Escaneo de la app de las gafas (MICE Scan)</strong>
+      <p className="hint">Al terminar de escanear, la app de las gafas muestra un código de 6 cifras. Escríbelo aquí para traer la sala con sus muebles.</p>
+      <div className="row gap">
+        <input inputMode="numeric" placeholder="Código de 6 cifras" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} onKeyDown={(e) => e.stopPropagation()} style={{ width: 150 }} />
+        <button className="btn small" disabled={busy || code.length !== 6} onClick={take}>
+          {busy ? 'Trayendo…' : 'Traer la sala'}
+        </button>
+      </div>
+      {msg && <p className="hint">{msg}</p>}
+    </div>
   );
 }
 

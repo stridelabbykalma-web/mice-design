@@ -15,6 +15,7 @@ import { useStore } from '../store';
 import { alignFromCorners, frontCorners, saveAnchor, savedAnchor, useXR, type XrMode } from '../lib/xr';
 import { cornersToRoomPlan, currentRoomPlanes, planeObstacles, fitModelToWalls, planesToRoomPlan, wallSegments, type ScanPlane } from '../lib/xrScan';
 import { parseRoomPlan } from '../lib/roomplan';
+import { placeObstacles } from '../lib/scanImport';
 import { WalkScan, type Obstacle, type WalkOutline } from '../lib/walkScan';
 import { DEPTH_INIT, makeDepthReader } from '../lib/xrDepth';
 import { logEvent } from '../lib/usageLog';
@@ -165,14 +166,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
       const st = useStore.getState();
       st.updateSpace({ width: r.width, depth: r.depth, height: r.height, outline: r.outline, method: 'fotogrametria' });
       // Muebles y obstáculos vistos al escanear, llevados a las coordenadas de la sala
-      const ct = Math.cos(-r.frame.theta);
-      const sn = Math.sin(-r.frame.theta);
-      const r2 = (v: number) => Math.round(v * 100) / 100;
-      const fixed = obstacles.map((o) => {
-        const X = o.x - r.frame.x;
-        const Z = o.z - r.frame.z;
-        return { type: 'obstaculo', x: r2(X * ct - Z * sn), z: r2(X * sn + Z * ct), rot: r2(o.rot + (r.frame.theta * 180) / Math.PI), w: r2(o.w), d: r2(o.d), h: r2(o.h) };
-      });
+      const fixed = placeObstacles(r.frame, obstacles);
       st.addItems([...r.items.map(({ id: _id, ...it }) => it), ...fixed], ['puerta', 'salida', 'ventana', 'tabique', 'obstaculo']);
       anchor.current = null;
       if (st.project?.measureRequest) st.patchProject({ measureRequest: undefined });

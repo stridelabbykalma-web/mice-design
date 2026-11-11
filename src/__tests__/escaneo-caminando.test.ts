@@ -236,4 +236,37 @@ describe('escaneo caminando (profundidad de las gafas)', () => {
       BOXES = [];
     }
   });
+
+  it('el escaneo de la app nativa (rejillas) da la misma sala que el escaneo directo', async () => {
+    const { importScan } = await import('../lib/scanImport');
+    const room = [
+      { x: -4, z: -3 },
+      { x: 4, z: -3 },
+      { x: 4, z: 3 },
+      { x: -4, z: 3 },
+    ];
+    BOXES = [{ x0: -1, x1: 1, z0: -3, z1: -2.4, h: 2.1 }];
+    try {
+      const scan = walk(room, 2.8, [
+        { x: -2.8, z: -1.2 },
+        { x: 2.8, z: -1.2 },
+        { x: 2.8, z: 2.2 },
+        { x: -2.8, z: 2.2 },
+        { x: -2.8, z: -1.2 },
+      ]);
+      const file = JSON.parse(JSON.stringify({ format: 'mice-roomplan', version: 2, walls: [], name: 'Salón de prueba', walk: scan.toGrids() }));
+      expect(JSON.stringify(file).length).toBeLessThan(60000);
+      const r = importScan(file);
+      const dims = [r.width, r.depth].sort();
+      expect(Math.abs(dims[0] - 6)).toBeLessThan(0.2);
+      expect(Math.abs(dims[1] - 8)).toBeLessThan(0.2);
+      expect(r.height).toBeCloseTo(2.8, 1);
+      expect(r.fixed).toHaveLength(1);
+      expect(r.fixed[0].type).toBe('obstaculo');
+      expect(Math.max(r.fixed[0].w!, r.fixed[0].d!)).toBeGreaterThan(1.7);
+      expect(r.name).toBe('Salón de prueba');
+    } finally {
+      BOXES = [];
+    }
+  });
 });

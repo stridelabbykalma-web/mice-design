@@ -296,3 +296,45 @@ create policy "leer archivos del hotel" on storage.objects for select to authent
 drop policy if exists "subir archivos del hotel" on storage.objects;
 create policy "subir archivos del hotel" on storage.objects for insert to authenticated
   with check (bucket_id = 'mice-hotel' and public.storage_hotel_role(name) in ('admin', 'editor'));
+
+-- ---------------------------------------------------------------------------------------
+-- Escaneos de la app nativa de las gafas (MICE Scan): la app deja el escaneo y recibe un
+-- código de 6 cifras; en la web se escribe el código para recogerlo. No hace falta iniciar
+-- sesión en las gafas. Caducan a las 2 horas y se borran al recogerlos.
+-- ---------------------------------------------------------------------------------------
+create table if not exists public.scan_drops (
+  code text primary key,
+  data jsonb not null,
+  created_at timestamptz not null default now()
+);
+alter table public.scan_drops enable row level security;
+
+create or replace function public.scan_drop(p_data jsonb)
+returns text language plpgsql security definer set search_path = public as $$
+declare
+  c text;
+begin
+  if p_data is null or p_data->>'format' <> 'mice-roomplan' then raise exception 'Formato de escaneo no válido'; end if;
+  if pg_column_size(p_data) > 400000 then raise exception 'Escaneo demasiado grande'; end if;
+  delete from public.scan_drops where created_at < now() - interval '2 hours';
+  if (select count(*) from public.scan_drops) > 500 then raise exception 'Demasiados escaneos pendientes'; end if;
+  loop
+    c := lpad((('x' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 7))::bit(28)::int % 1000000)::text, 6, '0');
+    exit when not exists (select 1 from public.scan_drops where code = c);
+  end loop;
+  insert into public.scan_drops (code, data) values (c, p_data);
+  return c;
+end $$;
+
+create or replace function public.scan_take(p_code text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  d jsonb;
+begin
+  delete from public.scan_drops where code = regexp_replace(p_code, '\D', '', 'g') and created_at > now() - interval '2 hours' returning data into d;
+  if d is null then raise exception 'Código no válido o caducado'; end if;
+  return d;
+end $$;
+
+grant execute on function public.scan_drop(jsonb) to anon, authenticated;
+grant execute on function public.scan_take(text) to anon, authenticated;
