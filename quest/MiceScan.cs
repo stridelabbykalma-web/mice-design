@@ -136,6 +136,20 @@ public class MiceScan : MonoBehaviour
         }
         catch (System.Exception e) { Note("ERROR rayos: " + e.Message); }
 
+        // Sin el límite de seguridad de las gafas: hay que poder caminar por toda la sala.
+        // Requiere «Boundary Visibility Support = Supported» en el OVRManager del Camera Rig.
+        try
+        {
+            var prop = typeof(OVRManager).GetProperty("shouldBoundaryVisibilityBeSuppressed");
+            if (OVRManager.instance != null && prop != null && prop.CanWrite)
+            {
+                prop.SetValue(OVRManager.instance, true);
+                Note("límite de seguridad: se pide ocultarlo · resultado " + prop.GetValue(OVRManager.instance));
+            }
+            else Note("límite de seguridad: no se puede ocultar (OVRManager " + (OVRManager.instance != null) + ", propiedad " + (prop != null) + ")");
+        }
+        catch (System.Exception e) { Note("ERROR límite: " + e.Message); }
+
         // Texto que sigue a la mirada
         try
         {
@@ -205,6 +219,12 @@ public class MiceScan : MonoBehaviour
         if (Time.time > nextLog && Time.time < 130f)
         {
             nextLog = Time.time + 15f;
+            try
+            {
+                var prop = typeof(OVRManager).GetProperty("shouldBoundaryVisibilityBeSuppressed");
+                if (OVRManager.instance != null && prop != null && prop.CanWrite) prop.SetValue(OVRManager.instance, true);
+            }
+            catch (System.Exception) { }
             Note("estado: lecturas " + frames + " · rayos con impacto " + rayHits + "/" + rayTotal + " · suelo " + free.Count + " · pared " + wall.Count + " · quieta " + still);
             if (log.Count > logSent) StartCoroutine(SendLog());
         }
