@@ -17,8 +17,6 @@ using System.Globalization;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
-using Meta.XR.MRUtilityKit;
-using Meta.XR.EnvironmentDepth;
 
 public class MiceScan : MonoBehaviour
 {
@@ -31,7 +29,83 @@ public class MiceScan : MonoBehaviour
     const int Cols = 20, Rows = 14; // rayos por lectura
     const float Interval = 0.12f;   // segundos entre lecturas
 
-    EnvironmentRaycastManager raycaster;
+    // El lanzador de rayos y el gestor de profundidad de Meta se buscan por su nombre en tiempo
+    // de ejecución: así el script compila aunque cambien de espacio de nombres entre versiones.
+    Component raycaster;
+    System.Reflection.MethodInfo rayMethod;
+    object[] rayArgs;
+    System.Reflection.FieldInfo hitPointField;
+    System.Reflection.PropertyInfo hitPointProp;
+    System.Reflection.PropertyInfo raySupported;
+
+    static System.Type FindType(string name)
+    {
+        foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+        {
+            System.Type[] types;
+            try { types = asm.GetTypes(); } catch (System.Exception) { continue; }
+            foreach (var t in types) if (t.Name == name && typeof(Component).IsAssignableFrom(t)) return t;
+        }
+        return null;
+    }
+
+    Component FindOrAdd(string typeName)
+    {
+        var t = FindType(typeName);
+        if (t == null) { Note(typeName + ": el tipo no existe en este SDK"); return null; }
+        var c = FindFirstObjectByType(t) as Component;
+        Note(typeName + " (" + t.FullName + ") en la escena: " + (c != null));
+        if (c == null) c = gameObject.AddComponent(t);
+        var b = c as Behaviour;
+        if (b != null) b.enabled = true;
+        return c;
+    }
+
+    void SetupRaycaster()
+    {
+        raycaster = FindOrAdd("EnvironmentRaycastManager");
+        if (raycaster == null) return;
+        var t = raycaster.GetType();
+        raySupported = t.GetProperty("IsSupported", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+        foreach (var m in t.GetMethods())
+        {
+            if (m.Name != "Raycast") continue;
+            var ps = m.GetParameters();
+            if (ps.Length < 2 || ps[0].ParameterType != typeof(Ray) || !ps[1].IsOut) continue;
+            if (rayMethod != null && ps.Length >= rayMethod.GetParameters().Length) continue;
+            rayMethod = m;
+        }
+        if (rayMethod == null) { Note("rayos: no hay un método Raycast(Ray, out …) reconocible"); return; }
+        var pars = rayMethod.GetParameters();
+        rayArgs = new object[pars.Length];
+        for (int i = 2; i < pars.Length; i++)
+            rayArgs[i] = pars[i].HasDefaultValue ? pars[i].DefaultValue : (pars[i].ParameterType == typeof(float) ? (object)12f : null);
+        var hitType = pars[1].ParameterType.GetElementType();
+        hitPointField = hitType.GetField("point");
+        hitPointProp = hitType.GetProperty("point");
+        Note("rayos: método con " + pars.Length + " parámetros · impacto " + hitType.Name + " · punto " + (hitPointField != null || hitPointProp != null));
+    }
+
+    bool RaySupported()
+    {
+        if (raycaster == null || rayMethod == null) return false;
+        try { return raySupported == null || (bool)raySupported.GetValue(null); } catch (System.Exception) { return true; }
+    }
+
+    bool Cast(Ray ray, out Vector3 point)
+    {
+        point = Vector3.zero;
+        rayArgs[0] = ray;
+        rayArgs[1] = null;
+        bool ok = (bool)rayMethod.Invoke(raycaster, rayArgs);
+        if (!ok) return false;
+        object hit = rayArgs[1];
+        if (hitPointField != null) point = (Vector3)hitPointField.GetValue(hit);
+        else if (hitPointProp != null) point = (Vector3)hitPointProp.GetValue(hit);
+        else return false;
+        return true;
+    }
+
     Transform head;
     TextMesh label;
     ParticleSystem dots;
@@ -119,21 +193,9 @@ public class MiceScan : MonoBehaviour
         }
         catch (System.Exception e) { Note("ERROR permiso: " + e.Message); }
 #endif
-        try
-        {
-            // Mapa de profundidad: si la escena no tiene el bloque Occlusion, se activa aquí
-            var depth = FindFirstObjectByType<EnvironmentDepthManager>();
-            Note("EnvironmentDepthManager en la escena: " + (depth != null));
-            if (depth == null) depth = gameObject.AddComponent<EnvironmentDepthManager>();
-            depth.enabled = true;
-        }
+        try { FindOrAdd("EnvironmentDepthManager"); }
         catch (System.Exception e) { Note("ERROR profundidad: " + e.Message); }
-        try
-        {
-            raycaster = FindFirstObjectByType<EnvironmentRaycastManager>();
-            Note("EnvironmentRaycastManager en la escena: " + (raycaster != null) + " · admitido: " + EnvironmentRaycastManager.IsSupported);
-            if (raycaster == null) raycaster = gameObject.AddComponent<EnvironmentRaycastManager>();
-        }
+        try { SetupRaycaster(); Note("rayos admitidos: " + RaySupported()); }
         catch (System.Exception e) { Note("ERROR rayos: " + e.Message); }
 
         // Sin el límite de seguridad de las gafas: hay que poder caminar por toda la sala.
@@ -258,7 +320,7 @@ public class MiceScan : MonoBehaviour
 
         if (Time.time < nextRead || still < 3) return;
         nextRead = Time.time + Interval;
-        if (raycaster == null || !EnvironmentRaycastManager.IsSupported) { status = "Estas gafas no dan el mapa de profundidad"; return; }
+        if (!RaySupported()) { status = "Estas gafas no dan el mapa de profundidad"; return; }
         ReadFrame();
     }
 
@@ -295,11 +357,10 @@ public class MiceScan : MonoBehaviour
             float yaw = Mathf.Lerp(-40f, 40f, c / (Cols - 1f));
             float pitch = Mathf.Lerp(-35f, 35f, r / (Rows - 1f));
             Vector3 dir = head.rotation * (Quaternion.Euler(-pitch, yaw, 0) * Vector3.forward);
-            EnvironmentRaycastHit hit;
+            Vector3 p;
             rayTotal++;
-            if (!raycaster.Raycast(new Ray(hp, dir), out hit, 12f)) continue;
+            if (!Cast(new Ray(hp, dir), out p)) continue;
             rayHits++;
-            Vector3 p = hit.point;
             float px = p.x, pz = -p.z, py = p.y;
             float dx = px - hx, dz = pz - hz, dy = py - hy;
             float d = Mathf.Sqrt(dx * dx + dz * dz);
