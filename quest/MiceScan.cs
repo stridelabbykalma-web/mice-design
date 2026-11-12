@@ -56,53 +56,137 @@ public class MiceScan : MonoBehaviour
     static int KeyX(long k) { return (int)(k >> 32) - 100000; }
     static int KeyZ(long k) { return (int)(k & 0xffffffff) - 100000; }
 
+    // Si el componente no se añadió a ningún objeto de la escena, se crea solo al arrancar.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    static void Bootstrap()
+    {
+        if (FindFirstObjectByType<MiceScan>() == null) new GameObject("MiceScan (auto)").AddComponent<MiceScan>();
+    }
+
+    // ---- Diagnóstico: lo que pasa en las gafas se envía al servidor para poder revisarlo ----
+    readonly List<string> log = new List<string>();
+    int logSent;
+    float nextLog = 6f;
+    int rayHits, rayTotal;
+
+    void Note(string m) { if (log.Count < 200) log.Add(Time.time.ToString("0.0", CultureInfo.InvariantCulture) + " " + m); }
+    void OnLog(string msg, string stack, LogType type)
+    {
+        if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
+            Note("[" + type + "] " + msg + " | " + (stack ?? "").Replace("\n", " / "));
+    }
+    void OnEnable() { Application.logMessageReceived += OnLog; }
+    void OnDisable() { Application.logMessageReceived -= OnLog; }
+
+    static string Esc(string t) { return t.Replace("\\", "/").Replace("\"", "'").Replace("\n", " ").Replace("\r", " ").Replace("\t", " "); }
+
+    IEnumerator SendLog()
+    {
+        var sb = new StringBuilder("{\"p_data\":{\"format\":\"mice-roomplan\",\"version\":2,\"walls\":[],\"diag\":true,\"log\":[");
+        for (int i = 0; i < log.Count; i++) { if (i > 0) sb.Append(','); sb.Append('"').Append(Esc(log[i])).Append('"'); }
+        sb.Append("]}}");
+        logSent = log.Count;
+        using (var req = new UnityWebRequest(SupabaseUrl + "/rest/v1/rpc/scan_drop", "POST"))
+        {
+            req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(sb.ToString()));
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+            req.SetRequestHeader("apikey", SupabaseKey);
+            req.SetRequestHeader("Authorization", "Bearer " + SupabaseKey);
+            yield return req.SendWebRequest();
+        }
+    }
+
     void Start()
     {
-        var rig = FindFirstObjectByType<OVRCameraRig>();
-        head = rig != null ? rig.centerEyeAnchor : Camera.main.transform;
+        Note("MiceScan v2 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
+        try
+        {
+            var rig = FindFirstObjectByType<OVRCameraRig>();
+            head = rig != null ? rig.centerEyeAnchor : (Camera.main != null ? Camera.main.transform : null);
+            Note("cabeza: " + (rig != null ? "OVRCameraRig" : head != null ? "Camera.main" : "NINGUNA"));
+        }
+        catch (System.Exception e) { Note("ERROR cabeza: " + e.Message); }
 
         // Permiso de datos de la sala (lo pide el mapa de profundidad); sale un aviso la primera vez
 #if UNITY_ANDROID && !UNITY_EDITOR
-        const string scenePermission = "com.oculus.permission.USE_SCENE";
-        if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(scenePermission))
-            UnityEngine.Android.Permission.RequestUserPermission(scenePermission);
+        try
+        {
+            const string scenePermission = "com.oculus.permission.USE_SCENE";
+            bool ok = UnityEngine.Android.Permission.HasUserAuthorizedPermission(scenePermission);
+            Note("permiso de sala: " + ok);
+            if (!ok) UnityEngine.Android.Permission.RequestUserPermission(scenePermission);
+        }
+        catch (System.Exception e) { Note("ERROR permiso: " + e.Message); }
 #endif
-        // Mapa de profundidad: si la escena no tiene el bloque Occlusion, se activa aquí
-        var depth = FindFirstObjectByType<EnvironmentDepthManager>();
-        if (depth == null) depth = gameObject.AddComponent<EnvironmentDepthManager>();
-        depth.enabled = true;
-
-        raycaster = FindFirstObjectByType<EnvironmentRaycastManager>();
-        if (raycaster == null) raycaster = gameObject.AddComponent<EnvironmentRaycastManager>();
+        try
+        {
+            // Mapa de profundidad: si la escena no tiene el bloque Occlusion, se activa aquí
+            var depth = FindFirstObjectByType<EnvironmentDepthManager>();
+            Note("EnvironmentDepthManager en la escena: " + (depth != null));
+            if (depth == null) depth = gameObject.AddComponent<EnvironmentDepthManager>();
+            depth.enabled = true;
+        }
+        catch (System.Exception e) { Note("ERROR profundidad: " + e.Message); }
+        try
+        {
+            raycaster = FindFirstObjectByType<EnvironmentRaycastManager>();
+            Note("EnvironmentRaycastManager en la escena: " + (raycaster != null) + " · admitido: " + EnvironmentRaycastManager.IsSupported);
+            if (raycaster == null) raycaster = gameObject.AddComponent<EnvironmentRaycastManager>();
+        }
+        catch (System.Exception e) { Note("ERROR rayos: " + e.Message); }
 
         // Texto que sigue a la mirada
-        var go = new GameObject("MiceScanTexto");
-        label = go.AddComponent<TextMesh>();
-        label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        go.GetComponent<MeshRenderer>().material = label.font.material;
-        label.fontSize = 60;
-        label.characterSize = 0.012f;
-        label.anchor = TextAnchor.MiddleCenter;
-        label.alignment = TextAlignment.Center;
-        label.color = Color.white;
+        try
+        {
+            var go = new GameObject("MiceScanTexto");
+            label = go.AddComponent<TextMesh>();
+            Font font = null;
+            try { font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"); } catch (System.Exception) { }
+            if (font == null)
+            {
+                var names = Font.GetOSInstalledFontNames();
+                Note("fuente incorporada no disponible; fuentes del sistema: " + names.Length);
+                font = Font.CreateDynamicFontFromOSFont(names.Length > 0 ? names[0] : "Roboto", 60);
+            }
+            label.font = font;
+            var mr = go.GetComponent<MeshRenderer>();
+            mr.material = font.material;
+            Note("texto: fuente " + font.name + " · shader " + (mr.material != null && mr.material.shader != null ? mr.material.shader.name : "NINGUNO"));
+            label.fontSize = 60;
+            label.characterSize = 0.012f;
+            label.anchor = TextAnchor.MiddleCenter;
+            label.alignment = TextAlignment.Center;
+            label.color = Color.white;
+        }
+        catch (System.Exception e) { Note("ERROR texto: " + e.Message); }
 
         // Puntos verdes donde se han visto paredes y muebles
-        var pgo = new GameObject("MiceScanPuntos");
-        dots = pgo.AddComponent<ParticleSystem>();
-        dots.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        var main = dots.main;
-        main.loop = false;
-        main.playOnAwake = false;
-        main.maxParticles = 30000;
-        main.startLifetime = 100000f;
-        main.startSpeed = 0f;
-        main.startSize = 0.04f;
-        main.simulationSpace = ParticleSystemSimulationSpace.World;
-        var em = dots.emission; em.enabled = false;
-        var sh = dots.shape; sh.enabled = false;
-        var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-        if (shader == null) shader = Shader.Find("Sprites/Default");
-        pgo.GetComponent<ParticleSystemRenderer>().material = new Material(shader);
+        try
+        {
+            var pgo = new GameObject("MiceScanPuntos");
+            dots = pgo.AddComponent<ParticleSystem>();
+            dots.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = dots.main;
+            main.loop = false;
+            main.playOnAwake = false;
+            main.maxParticles = 30000;
+            main.startLifetime = 100000f;
+            main.startSpeed = 0f;
+            main.startSize = 0.04f;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            var em = dots.emission; em.enabled = false;
+            var sh = dots.shape; sh.enabled = false;
+            Shader shader = null;
+            foreach (var n in new[] { "Universal Render Pipeline/Particles/Unlit", "Universal Render Pipeline/Unlit", "Sprites/Default", "Unlit/Color" })
+            {
+                shader = Shader.Find(n);
+                if (shader != null) { Note("puntos: shader " + n); break; }
+            }
+            if (shader == null) Note("puntos: NINGÚN shader disponible");
+            else pgo.GetComponent<ParticleSystemRenderer>().material = new Material(shader);
+        }
+        catch (System.Exception e) { Note("ERROR puntos: " + e.Message); }
 
         ResetScan();
     }
@@ -117,7 +201,14 @@ public class MiceScan : MonoBehaviour
 
     void Update()
     {
-        if (head == null) return;
+        // Diagnóstico al servidor: a los 6 s y luego cada 15 s mientras haya líneas nuevas (2 primeros minutos)
+        if (Time.time > nextLog && Time.time < 130f)
+        {
+            nextLog = Time.time + 15f;
+            Note("estado: lecturas " + frames + " · rayos con impacto " + rayHits + "/" + rayTotal + " · suelo " + free.Count + " · pared " + wall.Count + " · quieta " + still);
+            if (log.Count > logSent) StartCoroutine(SendLog());
+        }
+        if (head == null || label == null) return;
 
         // El texto, a 1,3 m delante y algo por debajo de los ojos
         var fwd = head.forward; fwd.y = 0;
@@ -131,7 +222,7 @@ public class MiceScan : MonoBehaviour
         if (uploading) return;
 
         if (OVRInput.GetDown(OVRInput.Button.Two) || OVRInput.GetDown(OVRInput.Button.Four)) ResetScan();
-        if (OVRInput.GetDown(OVRInput.Button.One) || OVRInput.GetDown(OVRInput.Button.Three))
+        if (dots != null && (OVRInput.GetDown(OVRInput.Button.One) || OVRInput.GetDown(OVRInput.Button.Three)))
             dots.gameObject.SetActive(!dots.gameObject.activeSelf);
         if (OVRInput.GetDown(OVRInput.Button.PrimaryIndexTrigger) || OVRInput.GetDown(OVRInput.Button.SecondaryIndexTrigger))
         {
@@ -147,7 +238,7 @@ public class MiceScan : MonoBehaviour
 
         if (Time.time < nextRead || still < 3) return;
         nextRead = Time.time + Interval;
-        if (!EnvironmentRaycastManager.IsSupported) { status = "Estas gafas no dan el mapa de profundidad"; return; }
+        if (raycaster == null || !EnvironmentRaycastManager.IsSupported) { status = "Estas gafas no dan el mapa de profundidad"; return; }
         ReadFrame();
     }
 
@@ -185,7 +276,9 @@ public class MiceScan : MonoBehaviour
             float pitch = Mathf.Lerp(-35f, 35f, r / (Rows - 1f));
             Vector3 dir = head.rotation * (Quaternion.Euler(-pitch, yaw, 0) * Vector3.forward);
             EnvironmentRaycastHit hit;
+            rayTotal++;
             if (!raycaster.Raycast(new Ray(hp, dir), out hit, 12f)) continue;
+            rayHits++;
             Vector3 p = hit.point;
             float px = p.x, pz = -p.z, py = p.y;
             float dx = px - hx, dz = pz - hz, dy = py - hy;
@@ -225,7 +318,7 @@ public class MiceScan : MonoBehaviour
         {
             int n; wall.TryGetValue(k, out n); wall[k] = n + 1;
             // Punto verde la primera vez que una celda de pared queda confirmada
-            if (n + 1 == MinFrames && painted.Add(k) && dots.particleCount < 29000)
+            if (n + 1 == MinFrames && painted.Add(k) && dots != null && dots.particleCount < 29000)
             {
                 var ep = new ParticleSystem.EmitParams();
                 ep.position = new Vector3((KeyX(k) + 0.5f) * Cell, 1.5f, -(KeyZ(k) + 0.5f) * Cell);
