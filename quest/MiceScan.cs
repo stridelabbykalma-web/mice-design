@@ -38,15 +38,25 @@ public class MiceScan : MonoBehaviour
     System.Reflection.PropertyInfo hitPointProp;
     System.Reflection.PropertyInfo raySupported;
 
+    static readonly Dictionary<string, System.Type> typeCache = new Dictionary<string, System.Type>();
     static System.Type FindType(string name)
     {
-        foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+        if (typeCache.Count == 0)
         {
-            System.Type[] types;
-            try { types = asm.GetTypes(); } catch (System.Exception) { continue; }
-            foreach (var t in types) if (t.Name == name && typeof(Component).IsAssignableFrom(t)) return t;
+            typeCache["_"] = null;
+            // Solo los ensamblados de Meta (recorrer todos los del motor tarda demasiado)
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                string an = asm.GetName().Name;
+                if (!(an.Contains("Meta") || an.Contains("Oculus") || an.Contains("MRUtilityKit") || an.Contains("Assembly-CSharp"))) continue;
+                System.Type[] types;
+                try { types = asm.GetTypes(); } catch (System.Exception) { continue; }
+                foreach (var t in types)
+                    if ((t.Name == "EnvironmentRaycastManager" || t.Name == "EnvironmentDepthManager") && typeof(Component).IsAssignableFrom(t)) typeCache[t.Name] = t;
+            }
         }
-        return null;
+        System.Type r;
+        return typeCache.TryGetValue(name, out r) ? r : null;
     }
 
     Component FindOrAdd(string typeName)
@@ -171,9 +181,13 @@ public class MiceScan : MonoBehaviour
         }
     }
 
-    void Start()
+    bool ready;
+
+    // El arranque va por etapas, con una pausa y un envío de diagnóstico entre cada una: si
+    // alguna bloquea la app, la última línea recibida dice cuál ha sido.
+    IEnumerator Start()
     {
-        Note("MiceScan v2 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
+        Note("MiceScan v3 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
         try
         {
             var rig = FindFirstObjectByType<OVRCameraRig>();
@@ -181,6 +195,8 @@ public class MiceScan : MonoBehaviour
             Note("cabeza: " + (rig != null ? "OVRCameraRig" : head != null ? "Camera.main" : "NINGUNA"));
         }
         catch (System.Exception e) { Note("ERROR cabeza: " + e.Message); }
+        Note("etapa 1 hecha (cabeza); sigue: permiso");
+        yield return SendLog();
 
         // Permiso de datos de la sala (lo pide el mapa de profundidad); sale un aviso la primera vez
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -193,11 +209,17 @@ public class MiceScan : MonoBehaviour
         }
         catch (System.Exception e) { Note("ERROR permiso: " + e.Message); }
 #endif
+        Note("etapa 2 hecha (permiso); sigue: profundidad");
+        yield return SendLog();
         try { FindOrAdd("EnvironmentDepthManager"); }
         catch (System.Exception e) { Note("ERROR profundidad: " + e.Message); }
+        Note("etapa 3 hecha (profundidad); sigue: rayos");
+        yield return SendLog();
         try { SetupRaycaster(); Note("rayos admitidos: " + RaySupported()); }
         catch (System.Exception e) { Note("ERROR rayos: " + e.Message); }
 
+        Note("etapa 4 hecha (rayos); sigue: límite");
+        yield return SendLog();
         // Sin el límite de seguridad de las gafas: hay que poder caminar por toda la sala.
         // Requiere «Boundary Visibility Support = Supported» en el OVRManager del Camera Rig.
         try
@@ -212,6 +234,8 @@ public class MiceScan : MonoBehaviour
         }
         catch (System.Exception e) { Note("ERROR límite: " + e.Message); }
 
+        Note("etapa 5 hecha (límite); sigue: texto");
+        yield return SendLog();
         // Texto que sigue a la mirada
         try
         {
@@ -237,6 +261,8 @@ public class MiceScan : MonoBehaviour
         }
         catch (System.Exception e) { Note("ERROR texto: " + e.Message); }
 
+        Note("etapa 6 hecha (texto); sigue: puntos");
+        yield return SendLog();
         // Puntos verdes donde se han visto paredes y muebles
         try
         {
@@ -265,6 +291,9 @@ public class MiceScan : MonoBehaviour
         catch (System.Exception e) { Note("ERROR puntos: " + e.Message); }
 
         ResetScan();
+        Note("arranque completo");
+        yield return SendLog();
+        ready = true;
     }
 
     void ResetScan()
@@ -277,6 +306,7 @@ public class MiceScan : MonoBehaviour
 
     void Update()
     {
+        if (!ready) return;
         // Diagnóstico al servidor: a los 6 s y luego cada 15 s mientras haya líneas nuevas (2 primeros minutos)
         if (Time.time > nextLog && Time.time < 130f)
         {
@@ -321,8 +351,14 @@ public class MiceScan : MonoBehaviour
         if (Time.time < nextRead || still < 3) return;
         nextRead = Time.time + Interval;
         if (!RaySupported()) { status = "Estas gafas no dan el mapa de profundidad"; return; }
-        ReadFrame();
+        try { ReadFrame(); }
+        catch (System.Exception e)
+        {
+            if (readErrors++ < 3) Note("ERROR lectura: " + e.GetType().Name + " " + e.Message + (e.InnerException != null ? " / " + e.InnerException.Message : ""));
+            status = "Error al leer la profundidad";
+        }
     }
+    int readErrors;
 
     string Message()
     {
