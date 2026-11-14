@@ -177,4 +177,43 @@ describe('medir la sala con las gafas', () => {
     expect(obs[0].h).toBeCloseTo(0.75, 2);
     expect(Math.abs(obs[0].rot)).toBeCloseTo(30, 0);
   });
+
+  it('app nativa: la sala anotada por las gafas (Meta) da paredes, puerta y muebles con nombre', async () => {
+    const { importScan } = await import('../lib/scanImport');
+    // Sala de 6 × 4 m y 2,5 m de alto en coordenadas de Unity (y arriba). Cuaternión de giro sobre Y.
+    const qy = (deg: number) => [0, Math.sin((deg * Math.PI) / 360), 0, Math.cos((deg * Math.PI) / 360)];
+    const wallA = (x: number, z: number, deg: number, w: number) => ({ label: 'WALL_FACE', room: 0, pos: [x, 1.25, z], rot: qy(deg), rect: [-w / 2, -1.25, w, 2.5] });
+    // Planos horizontales: girados −90° sobre X (su normal local +Z mira hacia arriba)
+    const up = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+    const scene = [
+      wallA(0, 2, 180, 6),
+      wallA(0, -2, 0, 6),
+      wallA(3, 0, 270, 4),
+      wallA(-3, 0, 90, 4),
+      { label: 'FLOOR', room: 0, pos: [0, 0, 0], rot: up, rect: [-3, -2, 6, 4] },
+      { label: 'CEILING', room: 0, pos: [0, 2.5, 0], rot: up, rect: [-3, -2, 6, 4] },
+      { label: 'DOOR_FRAME', room: 0, pos: [1, 1.05, -2], rot: qy(0), rect: [-0.45, -1.05, 0.9, 2.1] },
+      // Sofá de 2 × 0,9 m y 0,8 m de alto; mesa de 1,2 × 0,6 m a 0,45 m
+      { label: 'COUCH', room: 0, pos: [-1.5, 0.8, 1.2], rot: up, vol: [0, 0, -0.4, 2, 0.9, 0.8] },
+      { label: 'TABLE', room: 0, pos: [-1.5, 0.45, 0], rot: up, vol: [0, 0, -0.225, 1.2, 0.6, 0.45] },
+      // Otra habitación anotada en las gafas: no debe entrar
+      { label: 'FLOOR', room: 1, pos: [10, 0, 0], rot: up, rect: [-2, -2, 4, 4] },
+      { label: 'WALL_FACE', room: 1, pos: [10, 1.25, 2], rot: qy(180), rect: [-2, -1.25, 4, 2.5] },
+      { label: 'COUCH', room: 1, pos: [10, 0.8, 0], rot: up, vol: [0, 0, -0.4, 2, 0.9, 0.8] },
+    ];
+    const walk = { cell: 0.1, free: [], wall: [], obj: [], path: [0, 0, 50, 0, 100, 0, 100, 50] };
+    const r = importScan({ format: 'mice-roomplan', version: 2, walls: [], walk, scene });
+    expect([r.width, r.depth]).toEqual([6, 4]);
+    expect(r.height).toBeCloseTo(2.5, 1);
+    expect(r.items.filter((i) => i.type === 'puerta')).toHaveLength(1);
+    const sofa = r.fixed.filter((i) => i.type === 'sofa');
+    expect(sofa).toHaveLength(1);
+    expect([sofa[0].w, sofa[0].d].sort()).toEqual([0.9, 2]);
+    expect(sofa[0].h).toBeCloseTo(0.8, 1);
+    expect(sofa[0].label).toBe('Sofá');
+    const mesa = r.fixed.find((i) => i.label === 'Mesa')!;
+    expect(mesa.chairs).toBe(0);
+    expect(mesa.h).toBeCloseTo(0.45, 1);
+    expect(r.fixed).toHaveLength(2);
+  });
 });

@@ -311,7 +311,7 @@ public class MiceScan : MonoBehaviour
     // alguna bloquea la app, la última línea recibida dice cuál ha sido.
     IEnumerator Start()
     {
-        Note("MiceScan v5 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
+        Note("MiceScan v7 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
         try
         {
             var rig = FindFirstObjectByType<OVRCameraRig>();
@@ -405,6 +405,7 @@ public class MiceScan : MonoBehaviour
         catch (System.Exception e) { Note("ERROR puntos: " + e.Message); }
 
         ResetScan();
+        StartCoroutine(SetupCamera());
         Note("arranque completo");
         yield return SendLog();
         ready = true;
@@ -412,6 +413,7 @@ public class MiceScan : MonoBehaviour
 
     void ResetScan()
     {
+        photos.Clear(); photoMeta.Clear(); shots.Clear();
         free.Clear(); wall.Clear(); obj.Clear(); objH.Clear(); ceil.Clear(); path.Clear(); painted.Clear();
         frames = 0;
         if (dots != null) dots.Clear();
@@ -427,7 +429,7 @@ public class MiceScan : MonoBehaviour
             nextLog = Time.time + 15f;
             string lim = "?";
             try { lim = SuppressBoundary(); } catch (System.Exception) { }
-            Note("estado: límite " + lim + " · rayos admitidos " + RaySupported() + " · lecturas " + frames + " · rayos con impacto " + rayHits + "/" + rayTotal + " · suelo " + free.Count + " · pared " + wall.Count + " · quieta " + still);
+            Note("estado: escena " + sceneCount + " (" + sceneLabels + ") · fotos " + photos.Count + " · límite " + lim + " · rayos admitidos " + RaySupported() + " · lecturas " + frames + " · rayos con impacto " + rayHits + "/" + rayTotal + " · suelo " + free.Count + " · pared " + wall.Count + " · quieta " + still);
             if (log.Count > logSent) StartCoroutine(SendLog());
         }
         if (head == null || label == null) return;
@@ -444,6 +446,16 @@ public class MiceScan : MonoBehaviour
         if (uploading) return;
 
         if (OVRInput.GetDown(OVRInput.Button.Two) || OVRInput.GetDown(OVRInput.Button.Four)) ResetScan();
+        if (OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger) || OVRInput.GetDown(OVRInput.Button.SecondaryHandTrigger))
+        {
+            try { RequestMetaScan(); } catch (System.Exception e) { Note("ERROR escaneo de Meta: " + e.Message); status = "No se pudo abrir el escaneo de las gafas"; }
+        }
+        if (Time.time > nextScene)
+        {
+            nextScene = Time.time + 2f;
+            try { CountScene(); } catch (System.Exception e) { if (sceneErrors++ < 2) Note("ERROR escena: " + e.Message); }
+            if (reloadScene > 0 && Time.time > reloadScene) { reloadScene = 0; try { ReloadScene(); } catch (System.Exception e) { Note("ERROR recarga de escena: " + e.Message); } }
+        }
         if (dots != null && (OVRInput.GetDown(OVRInput.Button.One) || OVRInput.GetDown(OVRInput.Button.Three)))
             dots.gameObject.SetActive(!dots.gameObject.activeSelf);
         if (OVRInput.GetDown(OVRInput.Button.PrimaryIndexTrigger) || OVRInput.GetDown(OVRInput.Button.SecondaryIndexTrigger))
@@ -458,6 +470,7 @@ public class MiceScan : MonoBehaviour
         lastRot = head.rotation; lastPos = head.position;
         still = (ang > 2.5f || dist > 0.04f) ? 0 : still + 1;
 
+        if (still >= 8) { try { TryCapture(); } catch (System.Exception e) { if (camErrors++ < 3) Note("ERROR foto: " + e.Message); } }
         if (Time.time < nextRead || still < 3) return;
         nextRead = Time.time + Interval;
         if (!RaySupported()) { status = "Estas gafas no dan el mapa de profundidad"; return; }
@@ -478,8 +491,9 @@ public class MiceScan : MonoBehaviour
         int walls = 0;
         foreach (var kv in wall) if (kv.Value >= MinFrames) walls++;
         string s = "MICE Scan — camina por toda la sala mirando a las paredes\n"
-                 + "Suelo visto: " + m2.ToString("0") + " m2 · paredes: " + (walls * Cell).ToString("0") + " m\n"
-                 + "Gatillo: terminar y subir · B/Y: empezar de nuevo · A/X: puntos";
+                 + "Suelo visto: " + m2.ToString("0") + " m2 · paredes: " + (walls * Cell).ToString("0") + " m · fotos: " + photos.Count + (cam == null ? " (sin cámara)" : "") + "\n"
+                 + "Sala anotada por las gafas: " + (sceneCount > 0 ? sceneWalls + " paredes, " + sceneFurniture + " muebles" : "ninguna (botón lateral: escanearla)") + "\n"
+                 + "Gatillo: terminar y subir · B/Y: empezar de nuevo · A/X: puntos · Lateral: escaneo de Meta";
         return status.Length > 0 ? s + "\n" + status : s;
     }
 
@@ -625,8 +639,248 @@ public class MiceScan : MonoBehaviour
             if (i > 0) sb.Append(',');
             sb.Append(Mathf.RoundToInt(path[i].x * 100)).Append(',').Append(Mathf.RoundToInt(path[i].y * 100));
         }
-        sb.Append("]}}");
+        sb.Append("]}");
+        string scene = "";
+        try { scene = SceneJson(); } catch (System.Exception e) { Note("ERROR escena: " + e.Message); }
+        if (scene.Length > 0) sb.Append(",\"scene\":[").Append(scene).Append(']');
+        sb.Append('}');
         return sb.ToString();
+    }
+
+    // ---------------- Sala anotada por las gafas (escaneo de Meta: paredes, puertas, muebles) ----------------
+    int sceneCount, sceneWalls, sceneFurniture, sceneErrors;
+    string sceneLabels = "";
+    float nextScene, reloadScene;
+
+    static object Member(object o, string name)
+    {
+        var t = o.GetType();
+        var p = t.GetProperty(name, All);
+        if (p != null) return p.GetValue(o);
+        var f = t.GetField(name, All);
+        return f != null ? f.GetValue(o) : null;
+    }
+
+    List<MonoBehaviour> SceneAnchors()
+    {
+        var list = new List<MonoBehaviour>();
+        foreach (var mb in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
+            if (mb != null && mb.GetType().Name == "MRUKAnchor" && mb.gameObject.scene.IsValid() && mb.gameObject.activeInHierarchy) list.Add(mb);
+        return list;
+    }
+
+    void CountScene()
+    {
+        var hist = new Dictionary<string, int>();
+        int walls = 0, furn = 0, n = 0;
+        foreach (var a in SceneAnchors())
+        {
+            n++;
+            object lab = Member(a, "Label");
+            string l = lab != null ? lab.ToString() : "?";
+            int c; hist.TryGetValue(l, out c); hist[l] = c + 1;
+            if (l.Contains("WALL_FACE")) walls++;
+            else if (Member(a, "VolumeBounds") is Bounds) furn++;
+        }
+        sceneCount = n; sceneWalls = walls; sceneFurniture = furn;
+        var sb = new StringBuilder();
+        foreach (var kv in hist) sb.Append(kv.Key).Append(':').Append(kv.Value).Append(' ');
+        sceneLabels = sb.ToString();
+    }
+
+    /// Los elementos anotados por las gafas, tal cual (posición, giro, rectángulo o caja local).
+    string SceneJson()
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var rooms = new Dictionary<Transform, int>();
+        var sb = new StringBuilder();
+        int n = 0;
+        foreach (var a in SceneAnchors())
+        {
+            object lab = Member(a, "Label");
+            string l = lab != null ? lab.ToString() : "OTHER";
+            if (l.Contains("GLOBAL_MESH")) continue;
+            Transform parent = a.transform.parent != null ? a.transform.parent : a.transform;
+            int room; if (!rooms.TryGetValue(parent, out room)) { room = rooms.Count; rooms[parent] = room; }
+            Vector3 p = a.transform.position; Quaternion q = a.transform.rotation;
+            if (n++ > 0) sb.Append(',');
+            sb.Append("{\"label\":\"").Append(Esc(l)).Append("\",\"room\":").Append(room)
+              .Append(",\"pos\":[").Append(p.x.ToString("0.###", inv)).Append(',').Append(p.y.ToString("0.###", inv)).Append(',').Append(p.z.ToString("0.###", inv)).Append(']')
+              .Append(",\"rot\":[").Append(q.x.ToString("0.#####", inv)).Append(',').Append(q.y.ToString("0.#####", inv)).Append(',').Append(q.z.ToString("0.#####", inv)).Append(',').Append(q.w.ToString("0.#####", inv)).Append(']');
+            object pr = Member(a, "PlaneRect");
+            if (pr is Rect)
+            {
+                Rect r = (Rect)pr;
+                sb.Append(",\"rect\":[").Append(r.x.ToString("0.###", inv)).Append(',').Append(r.y.ToString("0.###", inv)).Append(',').Append(r.width.ToString("0.###", inv)).Append(',').Append(r.height.ToString("0.###", inv)).Append(']');
+            }
+            object vb = Member(a, "VolumeBounds");
+            if (vb is Bounds)
+            {
+                Bounds b = (Bounds)vb;
+                sb.Append(",\"vol\":[").Append(b.center.x.ToString("0.###", inv)).Append(',').Append(b.center.y.ToString("0.###", inv)).Append(',').Append(b.center.z.ToString("0.###", inv)).Append(',')
+                  .Append(b.size.x.ToString("0.###", inv)).Append(',').Append(b.size.y.ToString("0.###", inv)).Append(',').Append(b.size.z.ToString("0.###", inv)).Append(']');
+            }
+            sb.Append('}');
+            if (n >= 300) break;
+        }
+        return sb.ToString();
+    }
+
+    static object[] DefaultArgs(System.Reflection.MethodInfo m)
+    {
+        var ps = m.GetParameters();
+        var args = new object[ps.Length];
+        for (int i = 0; i < ps.Length; i++)
+            args[i] = ps[i].HasDefaultValue ? ps[i].DefaultValue : (ps[i].ParameterType.IsValueType ? System.Activator.CreateInstance(ps[i].ParameterType) : null);
+        return args;
+    }
+
+    /// Abre el escaneo de la sala de las gafas (el de Meta, que reconoce muebles) y después lo vuelve a leer.
+    void RequestMetaScan()
+    {
+        var t = typeof(OVRManager).Assembly.GetType("OVRScene");
+        System.Reflection.MethodInfo best = null;
+        if (t != null)
+            foreach (var m in t.GetMethods(All))
+                if (m.Name == "RequestSpaceSetup" && (best == null || m.GetParameters().Length < best.GetParameters().Length)) best = m;
+        if (best == null) { Note("escaneo de Meta: no existe OVRScene.RequestSpaceSetup (tipo " + (t != null) + ")"); status = "Este SDK no permite abrir el escaneo de las gafas desde la app"; return; }
+        best.Invoke(null, DefaultArgs(best));
+        Note("escaneo de Meta: pedido");
+        status = "";
+        reloadScene = Time.time + 6f;
+    }
+
+    void ReloadScene()
+    {
+        // Mientras el escaneo de las gafas está abierto, la app no tiene el foco: se espera
+        if (!OVRManager.hasInputFocus) { reloadScene = Time.time + 2f; return; }
+        MonoBehaviour mruk = null;
+        foreach (var mb in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
+            if (mb != null && mb.GetType().Name == "MRUK" && mb.gameObject.scene.IsValid()) { mruk = mb; break; }
+        if (mruk == null) { Note("recarga de escena: no hay MRUK en la escena"); return; }
+        System.Reflection.MethodInfo best = null;
+        foreach (var m in mruk.GetType().GetMethods(All))
+            if (m.Name == "LoadSceneFromDevice" && (best == null || m.GetParameters().Length < best.GetParameters().Length)) best = m;
+        if (best == null) { Note("recarga de escena: no existe LoadSceneFromDevice"); return; }
+        best.Invoke(mruk, DefaultArgs(best));
+        Note("recarga de escena: pedida");
+    }
+
+    // ---------------- Fotos con las cámaras de las gafas (Passthrough Camera API) ----------------
+    WebCamTexture cam;
+    Texture2D camTex;
+    int camErrors;
+    readonly List<byte[]> photos = new List<byte[]>();
+    readonly List<string> photoMeta = new List<string>();
+    readonly List<Vector4> shots = new List<Vector4>(); // x, z, rumbo (grados), 0
+    const int MaxPhotos = 40;
+
+    IEnumerator SetupCamera()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        string[] perms = { "horizonos.permission.HEADSET_CAMERA", "android.permission.CAMERA" };
+        bool asked = false;
+        foreach (var pm in perms) if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(pm)) asked = true;
+        if (asked) UnityEngine.Android.Permission.RequestUserPermissions(perms);
+        float until = Time.time + 20f;
+        while (Time.time < until)
+        {
+            bool all = true;
+            foreach (var pm in perms) if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(pm)) all = false;
+            if (all) break;
+            yield return new WaitForSeconds(0.5f);
+        }
+        foreach (var pm in perms) Note("cámara: permiso " + pm + " = " + UnityEngine.Android.Permission.HasUserAuthorizedPermission(pm));
+        try { CameraInfo(); } catch (System.Exception e) { Note("cámara: sin datos de Camera2 (" + e.Message + ")"); }
+#endif
+        WebCamDevice[] devs = new WebCamDevice[0];
+        try { devs = WebCamTexture.devices; } catch (System.Exception e) { Note("ERROR cámara (lista): " + e.Message); }
+        var names = new StringBuilder("cámara: dispositivos " + devs.Length + ": ");
+        foreach (var d in devs) names.Append(d.name).Append(d.isFrontFacing ? " (frontal)" : "").Append("; ");
+        Note(names.ToString());
+        if (devs.Length == 0) { yield return SendLog(); yield break; }
+        WebCamTexture t = null;
+        try { t = new WebCamTexture(devs[0].name, 1280, 960, 15); t.Play(); }
+        catch (System.Exception e) { Note("ERROR cámara (abrir): " + e.Message); }
+        if (t == null) { yield return SendLog(); yield break; }
+        float wait = Time.time + 8f;
+        while (t.width <= 16 && Time.time < wait) yield return null;
+        Note("cámara: " + devs[0].name + " · " + t.width + "x" + t.height + " · activa " + t.isPlaying + " · giro " + t.videoRotationAngle + " · espejo vertical " + t.videoVerticallyMirrored);
+        if (t.width > 16) cam = t;
+        yield return SendLog();
+    }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+    /// Datos de las cámaras según Android (Camera2): calibración y posición respecto a la cabeza.
+    void CameraInfo()
+    {
+        using (var up = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+        using (var act = up.GetStatic<AndroidJavaObject>("currentActivity"))
+        using (var cm = act.Call<AndroidJavaObject>("getSystemService", "camera"))
+        using (var keys = new AndroidJavaClass("android.hardware.camera2.CameraCharacteristics"))
+        {
+            string[] ids = cm.Call<string[]>("getCameraIdList");
+            Note("cámara: Camera2 ids " + string.Join(",", ids));
+            foreach (var id in ids)
+            {
+                var sb = new StringBuilder("cámara " + id + ": ");
+                using (var ch = cm.Call<AndroidJavaObject>("getCameraCharacteristics", id))
+                {
+                    foreach (var k in new[] { "LENS_INTRINSIC_CALIBRATION", "LENS_POSE_TRANSLATION", "LENS_POSE_ROTATION", "LENS_DISTORTION" })
+                    {
+                        try
+                        {
+                            using (var key = keys.GetStatic<AndroidJavaObject>(k))
+                            using (var val = ch.Call<AndroidJavaObject>("get", key))
+                            {
+                                if (val == null) { sb.Append(k).Append("=null; "); continue; }
+                                float[] f = AndroidJNIHelper.ConvertFromJNIArray<float[]>(val.GetRawObject());
+                                sb.Append(k).Append("=[");
+                                foreach (var x in f) sb.Append(x.ToString("0.#####", CultureInfo.InvariantCulture)).Append(' ');
+                                sb.Append("]; ");
+                            }
+                        }
+                        catch (System.Exception e) { sb.Append(k).Append("=err ").Append(e.Message.Length > 40 ? e.Message.Substring(0, 40) : e.Message).Append("; "); }
+                    }
+                    try
+                    {
+                        using (var key = keys.GetStatic<AndroidJavaObject>("SENSOR_INFO_PIXEL_ARRAY_SIZE"))
+                        using (var val = ch.Call<AndroidJavaObject>("get", key))
+                            sb.Append("sensor=").Append(val.Call<int>("getWidth")).Append('x').Append(val.Call<int>("getHeight")).Append("; ");
+                    }
+                    catch (System.Exception) { }
+                }
+                Note(sb.ToString());
+            }
+        }
+    }
+#endif
+
+    /// Hace una foto si la cabeza está quieta, mira más o menos horizontal y no hay ya otra
+    /// tomada desde cerca con un rumbo parecido.
+    void TryCapture()
+    {
+        if (cam == null || !cam.isPlaying || !cam.didUpdateThisFrame || photos.Count >= MaxPhotos || uploading) return;
+        Vector3 f = head.forward;
+        if (Mathf.Abs(f.y) > 0.45f) return;
+        float yaw = Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
+        Vector3 hp = head.position;
+        foreach (var sh in shots)
+            if (Mathf.Abs(Mathf.DeltaAngle(sh.z, yaw)) < 30f && Vector2.Distance(new Vector2(sh.x, sh.y), new Vector2(hp.x, hp.z)) < 1.5f) return;
+        if (camTex == null || camTex.width != cam.width || camTex.height != cam.height) camTex = new Texture2D(cam.width, cam.height, TextureFormat.RGBA32, false);
+        camTex.SetPixels32(cam.GetPixels32());
+        camTex.Apply(false);
+        byte[] jpg = camTex.EncodeToJPG(60);
+        if (jpg == null || jpg.Length > 400000) return;
+        var inv = CultureInfo.InvariantCulture;
+        Quaternion q = head.rotation;
+        photoMeta.Add("{\"w\":" + cam.width + ",\"h\":" + cam.height
+            + ",\"pos\":[" + hp.x.ToString("0.###", inv) + "," + hp.y.ToString("0.###", inv) + "," + hp.z.ToString("0.###", inv) + "]"
+            + ",\"rot\":[" + q.x.ToString("0.#####", inv) + "," + q.y.ToString("0.#####", inv) + "," + q.z.ToString("0.#####", inv) + "," + q.w.ToString("0.#####", inv) + "]"
+            + ",\"mirror\":" + (cam.videoVerticallyMirrored ? "true" : "false") + ",\"angle\":" + cam.videoRotationAngle + ",\"t\":" + Time.time.ToString("0.0", inv) + "}");
+        photos.Add(jpg);
+        shots.Add(new Vector4(hp.x, hp.z, yaw, 0));
+        if (photos.Count == 1) Note("cámara: primera foto " + jpg.Length + " bytes");
     }
 
     IEnumerator Upload()
@@ -645,7 +899,26 @@ public class MiceScan : MonoBehaviour
             if (req.result == UnityWebRequest.Result.Success)
             {
                 string code = req.downloadHandler.text.Trim().Trim('"');
-                status = "ESCANEO SUBIDO\n\nCódigo:  " + code + "\n\nEscríbelo en la web: Espacio → Escaneo de la app de las gafas\n(vale 2 horas)   ·   B/Y: escanear otra sala";
+                int sent = 0;
+                for (int i = 0; i < photos.Count; i++)
+                {
+                    status = "Escaneo subido. Subiendo fotos: " + (i + 1) + " de " + photos.Count + "…";
+                    string pb = "{\"p_code\":\"" + code + "\",\"p_idx\":" + i + ",\"p_meta\":" + photoMeta[i] + ",\"p_jpeg\":\"" + System.Convert.ToBase64String(photos[i]) + "\"}";
+                    using (var pr = new UnityWebRequest(SupabaseUrl + "/rest/v1/rpc/scan_photo_add", "POST"))
+                    {
+                        pr.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(pb));
+                        pr.downloadHandler = new DownloadHandlerBuffer();
+                        pr.SetRequestHeader("Content-Type", "application/json");
+                        pr.SetRequestHeader("apikey", SupabaseKey);
+                        pr.SetRequestHeader("Authorization", "Bearer " + SupabaseKey);
+                        yield return pr.SendWebRequest();
+                        if (pr.result == UnityWebRequest.Result.Success) sent++;
+                        else if (i == 0) Note("ERROR subida de foto: " + pr.error + " " + pr.downloadHandler.text);
+                    }
+                }
+                Note("subida: código " + code + " · fotos " + sent + "/" + photos.Count);
+                StartCoroutine(SendLog());
+                status = "ESCANEO SUBIDO (" + sent + " fotos)\n\nCódigo:  " + code + "\n\nEscríbelo en la web: Espacio → Escaneo de la app de las gafas\n(vale 2 horas)   ·   B/Y: escanear otra sala";
                 while (!(OVRInput.GetDown(OVRInput.Button.Two) || OVRInput.GetDown(OVRInput.Button.Four))) yield return null;
                 ResetScan();
             }
@@ -659,3 +932,30 @@ public class MiceScan : MonoBehaviour
         uploading = false;
     }
 }
+
+#if UNITY_EDITOR
+/// Al compilar para las gafas, añade al manifiesto los permisos de las cámaras (fotos de la sala).
+public class MiceScanManifest : UnityEditor.Android.IPostGenerateGradleAndroidProject
+{
+    public int callbackOrder { get { return 10000; } }
+
+    public void OnPostGenerateGradleAndroidProject(string path)
+    {
+        try
+        {
+            string file = System.IO.Path.Combine(path, "src/main/AndroidManifest.xml");
+            if (!System.IO.File.Exists(file)) { Debug.LogWarning("[MiceScan] No se encuentra el manifiesto en " + file); return; }
+            string xml = System.IO.File.ReadAllText(file);
+            string add = "";
+            foreach (var p in new[] { "horizonos.permission.HEADSET_CAMERA", "android.permission.CAMERA" })
+                if (xml.IndexOf(p) < 0) add += "  <uses-permission android:name=\"" + p + "\" />\n";
+            if (add.Length == 0) { Debug.Log("[MiceScan] El manifiesto ya tiene los permisos de cámara"); return; }
+            int at = xml.LastIndexOf("</manifest>");
+            if (at < 0) return;
+            System.IO.File.WriteAllText(file, xml.Substring(0, at) + add + xml.Substring(at));
+            Debug.Log("[MiceScan] Permisos de cámara añadidos al manifiesto");
+        }
+        catch (System.Exception e) { Debug.LogWarning("[MiceScan] No se pudo editar el manifiesto: " + e.Message); }
+    }
+}
+#endif

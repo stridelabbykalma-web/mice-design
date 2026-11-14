@@ -338,3 +338,38 @@ end $$;
 
 grant execute on function public.scan_drop(jsonb) to anon, authenticated;
 grant execute on function public.scan_take(text) to anon, authenticated;
+
+-- Fotos tomadas por la app de las gafas durante el escaneo (una fila por foto, JPEG en base64).
+create table if not exists public.scan_photos (
+  code text not null,
+  idx int not null,
+  meta jsonb,
+  jpeg text not null,
+  created_at timestamptz not null default now(),
+  primary key (code, idx)
+);
+alter table public.scan_photos enable row level security;
+
+create or replace function public.scan_photo_add(p_code text, p_idx int, p_meta jsonb, p_jpeg text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from public.scan_drops where code = p_code and created_at > now() - interval '2 hours') then raise exception 'Código no válido o caducado'; end if;
+  if p_idx < 0 or p_idx >= 60 or length(p_jpeg) > 600000 then raise exception 'Foto no válida'; end if;
+  delete from public.scan_photos where created_at < now() - interval '3 hours';
+  insert into public.scan_photos (code, idx, meta, jpeg) values (p_code, p_idx, p_meta, p_jpeg)
+  on conflict (code, idx) do update set meta = excluded.meta, jpeg = excluded.jpeg, created_at = now();
+end $$;
+
+create or replace function public.scan_photos_list(p_code text)
+returns table (idx int, meta jsonb) language sql stable security definer set search_path = public as $$
+  select p.idx, p.meta from public.scan_photos p where p.code = regexp_replace(p_code, '\D', '', 'g') and p.created_at > now() - interval '3 hours' order by p.idx
+$$;
+
+create or replace function public.scan_photo_get(p_code text, p_idx int)
+returns text language sql stable security definer set search_path = public as $$
+  select p.jpeg from public.scan_photos p where p.code = regexp_replace(p_code, '\D', '', 'g') and p.idx = p_idx and p.created_at > now() - interval '3 hours'
+$$;
+
+grant execute on function public.scan_photo_add(text, int, jsonb, text) to anon, authenticated;
+grant execute on function public.scan_photos_list(text) to anon, authenticated;
+grant execute on function public.scan_photo_get(text, int) to anon, authenticated;
