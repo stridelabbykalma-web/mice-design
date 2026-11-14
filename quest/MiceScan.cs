@@ -125,6 +125,69 @@ public class MiceScan : MonoBehaviour
         else Note("profundidad: no hay propiedad OcclusionShadersMode modificable");
     }
 
+    /// Pide a las gafas que no muestren el límite de seguridad (solo lo aceptan en realidad
+    /// mixta y si el proyecto declara «Boundary Visibility Support»). Devuelve el estado.
+    string SuppressBoundary()
+    {
+        var mgr = OVRManager.instance;
+        if (mgr == null) return "sin OVRManager";
+        var f = typeof(OVRManager).GetField("shouldBoundaryVisibilityBeSuppressed", All);
+        if (f == null) return "no existe la opción en este SDK";
+        f.SetValue(mgr, true);
+        var p = typeof(OVRManager).GetProperty("isBoundaryVisibilitySuppressed", All);
+        return "pedido ocultar · oculto ahora: " + (p != null ? p.GetValue(mgr) : "?");
+    }
+
+#if UNITY_EDITOR
+    // En el editor: deja activado «Boundary Visibility Support» en la configuración de Meta,
+    // que es lo que permite a la app ocultar el límite de seguridad.
+    [UnityEditor.InitializeOnLoadMethod]
+    static void EditorBoundarySetup()
+    {
+        try
+        {
+            System.Type cfgType = null;
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try { cfgType = asm.GetType("OVRProjectConfig"); } catch (System.Exception) { }
+                if (cfgType != null) break;
+            }
+            if (cfgType == null) { Debug.LogWarning("[MiceScan] No se encuentra OVRProjectConfig"); return; }
+            var cached = cfgType.GetProperty("CachedProjectConfig", All);
+            object cfg = cached != null ? cached.GetValue(null) : null;
+            if (cfg == null)
+            {
+                var get = cfgType.GetMethod("GetProjectConfig", All);
+                if (get != null && get.GetParameters().Length == 0) cfg = get.Invoke(null, null);
+            }
+            if (cfg == null) { Debug.LogWarning("[MiceScan] No se pudo leer la configuración de Meta"); return; }
+            bool found = false, changed = false;
+            var names = new StringBuilder();
+            foreach (var fld in cfgType.GetFields(All))
+            {
+                if (fld.Name.ToLowerInvariant().IndexOf("boundary") < 0) continue;
+                found = true;
+                names.Append(fld.Name).Append('=').Append(fld.GetValue(cfg)).Append("; ");
+                if (!fld.FieldType.IsEnum) continue;
+                var opts = System.Enum.GetNames(fld.FieldType);
+                if (System.Array.IndexOf(opts, "Supported") < 0 || fld.GetValue(cfg).ToString() != "None" && fld.GetValue(cfg).ToString() != "Unsupported") continue;
+                fld.SetValue(cfg, System.Enum.Parse(fld.FieldType, "Supported"));
+                changed = true;
+            }
+            if (changed)
+            {
+                var commit = cfgType.GetMethod("CommitProjectConfig", All);
+                if (commit != null) commit.Invoke(null, new object[] { cfg });
+                else UnityEditor.EditorUtility.SetDirty((Object)cfg);
+                UnityEditor.AssetDatabase.SaveAssets();
+                Debug.Log("[MiceScan] Activado Boundary Visibility Support (límite de seguridad ocultable). Antes: " + names);
+            }
+            else Debug.Log("[MiceScan] Boundary Visibility Support: " + (found ? "ya configurado · " + names : "no hay ninguna opción de límite en la configuración"));
+        }
+        catch (System.Exception e) { Debug.LogWarning("[MiceScan] No se pudo configurar el límite: " + e.Message); }
+    }
+#endif
+
     void SetupRaycaster()
     {
         raycaster = FindOrAdd("EnvironmentRaycastManager");
@@ -248,7 +311,7 @@ public class MiceScan : MonoBehaviour
     // alguna bloquea la app, la última línea recibida dice cuál ha sido.
     IEnumerator Start()
     {
-        Note("MiceScan v4 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
+        Note("MiceScan v5 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
         try
         {
             var rig = FindFirstObjectByType<OVRCameraRig>();
@@ -283,22 +346,8 @@ public class MiceScan : MonoBehaviour
         yield return SendLog();
         // Sin el límite de seguridad de las gafas: hay que poder caminar por toda la sala.
         // Requiere «Boundary Visibility Support = Supported» en el OVRManager del Camera Rig.
-        try
-        {
-            var prop = typeof(OVRManager).GetProperty("shouldBoundaryVisibilityBeSuppressed");
-            if (OVRManager.instance != null && prop != null && prop.CanWrite)
-            {
-                prop.SetValue(OVRManager.instance, true);
-                Note("límite de seguridad: se pide ocultarlo · resultado " + prop.GetValue(OVRManager.instance));
-            }
-            else
-            {
-                Note("límite de seguridad: no se puede ocultar (OVRManager " + (OVRManager.instance != null) + ", propiedad " + (prop != null) + ")");
-                Dump("OVRManager límite", typeof(OVRManager), OVRManager.instance, "boundary", 30);
-            }
-        }
+        try { Note("límite de seguridad: " + SuppressBoundary()); }
         catch (System.Exception e) { Note("ERROR límite: " + e.Message); }
-
         Note("etapa 5 hecha (límite); sigue: texto");
         yield return SendLog();
         // Texto que sigue a la mirada
@@ -376,13 +425,9 @@ public class MiceScan : MonoBehaviour
         if (Time.time > nextLog && Time.time < 130f)
         {
             nextLog = Time.time + 15f;
-            try
-            {
-                var prop = typeof(OVRManager).GetProperty("shouldBoundaryVisibilityBeSuppressed");
-                if (OVRManager.instance != null && prop != null && prop.CanWrite) prop.SetValue(OVRManager.instance, true);
-            }
-            catch (System.Exception) { }
-            Note("estado: rayos admitidos " + RaySupported() + " · lecturas " + frames + " · rayos con impacto " + rayHits + "/" + rayTotal + " · suelo " + free.Count + " · pared " + wall.Count + " · quieta " + still);
+            string lim = "?";
+            try { lim = SuppressBoundary(); } catch (System.Exception) { }
+            Note("estado: límite " + lim + " · rayos admitidos " + RaySupported() + " · lecturas " + frames + " · rayos con impacto " + rayHits + "/" + rayTotal + " · suelo " + free.Count + " · pared " + wall.Count + " · quieta " + still);
             if (log.Count > logSent) StartCoroutine(SendLog());
         }
         if (head == null || label == null) return;
