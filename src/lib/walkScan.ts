@@ -536,11 +536,11 @@ export class WalkScan {
       }
       hs.sort((a, b) => a - b);
       const h = hs.length ? Math.round(hs[Math.floor(hs.length * 0.9)] * 20) / 20 : 2;
-      out.push({ x: ((f.u0 + f.u1) / 2) * c - ((f.v0 + f.v1) / 2) * s, z: ((f.u0 + f.u1) / 2) * s + ((f.v0 + f.v1) / 2) * c, w: f.u1 - f.u0, d: f.v1 - f.v0, h: tall(Math.max(0.4, h)), rot: -room.angle });
+      out.push({ x: ((f.u0 + f.u1) / 2) * c - ((f.v0 + f.v1) / 2) * s, z: ((f.u0 + f.u1) / 2) * s + ((f.v0 + f.v1) / 2) * c, w: f.u1 - f.u0 - 0.06, d: f.v1 - f.v0 - 0.06, h: tall(Math.max(0.4, h)), rot: -room.angle });
     }
     const inFilled = (u: number, v: number) => room.filled.some((f) => u > f.u0 - 0.25 && u < f.u1 + 0.25 && v > f.v0 - 0.25 && v < f.v1 + 0.25);
     // Grupos de celdas vecinas (se toleran huecos de 20 cm)
-    const boxes: { u0: number; u1: number; v0: number; v1: number; h: number }[] = [];
+    const boxes: { u0: number; u1: number; v0: number; v1: number; h: number; split?: boolean }[] = [];
     const seen = new Set<string>();
     for (const [k0, c0] of cells) {
       if (seen.has(k0)) continue;
@@ -559,27 +559,44 @@ export class WalkScan {
           }
       }
       if (group.length < 10) continue;
-      let u0 = (Math.min(...group.map((g) => g.u)) - 0.5) * CELL;
-      let u1 = (Math.max(...group.map((g) => g.u)) + 0.5) * CELL;
-      let v0 = (Math.min(...group.map((g) => g.v)) - 0.5) * CELL;
-      let v1 = (Math.max(...group.map((g) => g.v)) + 0.5) * CELL;
-      if (Math.max(u1 - u0, v1 - v0) < 0.4) continue;
-      if (inFilled((u0 + u1) / 2, (v0 + v1) / 2)) continue;
-      const world = (u: number, v: number) => ({ x: u * c - v * s, z: u * s + v * c });
-      // Pegar a la pared cercana: se avanza desde cada cara hasta salir de la sala
-      const reach = (u: number, v: number, du: number, dv: number) => {
-        for (let t = CELL; t <= 0.9; t += CELL) if (!inPoly(world(u + du * t, v + dv * t))) return t;
-        return 0;
-      };
-      const um = (u0 + u1) / 2;
-      const vm = (v0 + v1) / 2;
-      u0 -= reach(u0, vm, -1, 0);
-      u1 += reach(u1, vm, 1, 0);
-      v0 -= reach(um, v0, 0, -1);
-      v1 += reach(um, v1, 0, 1);
-      const hs = group.map((g) => g.h).sort((a, b) => a - b);
-      const h = Math.round(hs[Math.floor(hs.length * 0.9)] * 20) / 20;
-      boxes.push({ u0, u1, v0, v1, h: tall(Math.max(0.4, h)) });
+      // Un grupo grande y poco denso son varios muebles juntos (sofás, butacas y mesas de un
+      // salón): se parte en zonas de 1,5 m y cada una da su propia caja.
+      const gu0 = Math.min(...group.map((g) => g.u));
+      const gv0 = Math.min(...group.map((g) => g.v));
+      const gw2 = Math.max(...group.map((g) => g.u)) - gu0 + 1;
+      const gh2 = Math.max(...group.map((g) => g.v)) - gv0 + 1;
+      const sparse = gw2 * gh2 * CELL * CELL > 3 && group.length < gw2 * gh2 * 0.7;
+      const parts = new Map<string, typeof group>();
+      for (const g of group) {
+        const k = sparse ? `${Math.floor((g.u - gu0) / 15)},${Math.floor((g.v - gv0) / 15)}` : '0';
+        if (!parts.has(k)) parts.set(k, []);
+        parts.get(k)!.push(g);
+      }
+      for (const part of parts.values()) {
+        if (part.length < 8) continue;
+        let u0 = (Math.min(...part.map((g) => g.u)) - 0.5) * CELL;
+        let u1 = (Math.max(...part.map((g) => g.u)) + 0.5) * CELL;
+        let v0 = (Math.min(...part.map((g) => g.v)) - 0.5) * CELL;
+        let v1 = (Math.max(...part.map((g) => g.v)) + 0.5) * CELL;
+        if (Math.max(u1 - u0, v1 - v0) < 0.4) continue;
+        if (inFilled((u0 + u1) / 2, (v0 + v1) / 2)) continue;
+        const world = (u: number, v: number) => ({ x: u * c - v * s, z: u * s + v * c });
+        // Pegar a la pared cercana: se avanza desde cada cara hasta el último punto dentro de
+        // la sala, dejando 3 cm para que la caja no toque la pared
+        const reach = (u: number, v: number, du: number, dv: number) => {
+          for (let t = CELL; t <= 0.9; t += CELL) if (!inPoly(world(u + du * t, v + dv * t))) return Math.max(0, t - CELL - 0.03);
+          return 0;
+        };
+        const um = (u0 + u1) / 2;
+        const vm = (v0 + v1) / 2;
+        u0 -= reach(u0, vm, -1, 0);
+        u1 += reach(u1, vm, 1, 0);
+        v0 -= reach(um, v0, 0, -1);
+        v1 += reach(um, v1, 0, 1);
+        const hs = part.map((g) => g.h).sort((a, b) => a - b);
+        const h = Math.round(hs[Math.floor(hs.length * 0.9)] * 20) / 20;
+        boxes.push({ u0, u1, v0, v1, h: tall(Math.max(0.4, h)), split: sparse });
+      }
     }
     // Trozos del mismo mueble (se tocan y tienen una altura parecida): se unen
     for (let merged = true; merged; ) {
@@ -588,7 +605,7 @@ export class WalkScan {
         for (let b = a + 1; b < boxes.length && !merged; b++) {
           const A = boxes[a];
           const B = boxes[b];
-          if (Math.abs(A.h - B.h) > 0.4 || A.u0 > B.u1 + 0.3 || B.u0 > A.u1 + 0.3 || A.v0 > B.v1 + 0.3 || B.v0 > A.v1 + 0.3) continue;
+          if (A.split || B.split || Math.abs(A.h - B.h) > 0.4 || A.u0 > B.u1 + 0.3 || B.u0 > A.u1 + 0.3 || A.v0 > B.v1 + 0.3 || B.v0 > A.v1 + 0.3) continue;
           boxes[a] = { u0: Math.min(A.u0, B.u0), u1: Math.max(A.u1, B.u1), v0: Math.min(A.v0, B.v0), v1: Math.max(A.v1, B.v1), h: Math.max(A.h, B.h) };
           boxes.splice(b, 1);
           merged = true;

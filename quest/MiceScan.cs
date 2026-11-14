@@ -142,6 +142,33 @@ public class MiceScan : MonoBehaviour
     // En el editor: deja activado «Boundary Visibility Support» en la configuración de Meta,
     // que es lo que permite a la app ocultar el límite de seguridad.
     [UnityEditor.InitializeOnLoadMethod]
+    static void EditorInit()
+    {
+        UnityEditor.EditorApplication.delayCall += EditorBoundarySetup;
+        UnityEditor.EditorApplication.delayCall += EditorManifestSetup;
+    }
+
+    /// Añade al manifiesto del proyecto los permisos de las cámaras de las gafas (fotos de la sala).
+    static void EditorManifestSetup()
+    {
+        try
+        {
+            string file = System.IO.Path.Combine(Application.dataPath, "Plugins/Android/AndroidManifest.xml");
+            if (!System.IO.File.Exists(file)) { Debug.LogWarning("[MiceScan] No hay Assets/Plugins/Android/AndroidManifest.xml: las fotos no funcionarán hasta crearlo (Meta > Tools > Update AndroidManifest)"); return; }
+            string xml = System.IO.File.ReadAllText(file);
+            string add = "";
+            foreach (var p in new[] { "horizonos.permission.HEADSET_CAMERA", "android.permission.CAMERA" })
+                if (xml.IndexOf(p) < 0) add += "  <uses-permission android:name=\"" + p + "\" />\n";
+            if (add.Length == 0) { Debug.Log("[MiceScan] El manifiesto ya tiene los permisos de cámara"); return; }
+            int at = xml.LastIndexOf("</manifest>");
+            if (at < 0) return;
+            System.IO.File.WriteAllText(file, xml.Substring(0, at) + add + xml.Substring(at));
+            UnityEditor.AssetDatabase.Refresh();
+            Debug.Log("[MiceScan] Permisos de cámara añadidos al manifiesto");
+        }
+        catch (System.Exception e) { Debug.LogWarning("[MiceScan] No se pudo editar el manifiesto: " + e.Message); }
+    }
+
     static void EditorBoundarySetup()
     {
         try
@@ -311,7 +338,7 @@ public class MiceScan : MonoBehaviour
     // alguna bloquea la app, la última línea recibida dice cuál ha sido.
     IEnumerator Start()
     {
-        Note("MiceScan v7 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
+        Note("MiceScan v8 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
         try
         {
             var rig = FindFirstObjectByType<OVRCameraRig>();
@@ -327,9 +354,9 @@ public class MiceScan : MonoBehaviour
         try
         {
             const string scenePermission = "com.oculus.permission.USE_SCENE";
-            bool ok = UnityEngine.Android.Permission.HasUserAuthorizedPermission(scenePermission);
-            Note("permiso de sala: " + ok);
-            if (!ok) UnityEngine.Android.Permission.RequestUserPermission(scenePermission);
+            Note("permiso de sala: " + UnityEngine.Android.Permission.HasUserAuthorizedPermission(scenePermission));
+            // Una sola petición con todos los permisos (Android solo atiende una a la vez)
+            UnityEngine.Android.Permission.RequestUserPermissions(new[] { scenePermission, "horizonos.permission.HEADSET_CAMERA", "android.permission.CAMERA" });
         }
         catch (System.Exception e) { Note("ERROR permiso: " + e.Message); }
 #endif
@@ -452,7 +479,7 @@ public class MiceScan : MonoBehaviour
         }
         if (Time.time > nextScene)
         {
-            nextScene = Time.time + 2f;
+            nextScene = Time.time + 4f;
             try { CountScene(); } catch (System.Exception e) { if (sceneErrors++ < 2) Note("ERROR escena: " + e.Message); }
             if (reloadScene > 0 && Time.time > reloadScene) { reloadScene = 0; try { ReloadScene(); } catch (System.Exception e) { Note("ERROR recarga de escena: " + e.Message); } }
         }
@@ -753,7 +780,7 @@ public class MiceScan : MonoBehaviour
     void ReloadScene()
     {
         // Mientras el escaneo de las gafas está abierto, la app no tiene el foco: se espera
-        if (!OVRManager.hasInputFocus) { reloadScene = Time.time + 2f; return; }
+        if (!Application.isFocused) { reloadScene = Time.time + 2f; return; }
         MonoBehaviour mruk = null;
         foreach (var mb in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
             if (mb != null && mb.GetType().Name == "MRUK" && mb.gameObject.scene.IsValid()) { mruk = mb; break; }
@@ -762,13 +789,18 @@ public class MiceScan : MonoBehaviour
         foreach (var m in mruk.GetType().GetMethods(All))
             if (m.Name == "LoadSceneFromDevice" && (best == null || m.GetParameters().Length < best.GetParameters().Length)) best = m;
         if (best == null) { Note("recarga de escena: no existe LoadSceneFromDevice"); return; }
-        best.Invoke(mruk, DefaultArgs(best));
-        Note("recarga de escena: pedida");
+        // Sin que MRUK abra por su cuenta el escaneo si no hay datos
+        var la = DefaultArgs(best);
+        var lp = best.GetParameters();
+        for (int i = 0; i < lp.Length; i++) if (lp[i].ParameterType == typeof(bool) && lp[i].Name.ToLowerInvariant().Contains("request")) la[i] = false;
+        object res = best.Invoke(mruk, la);
+        Note("recarga de escena: pedida (" + (res != null ? res.GetType().Name : "void") + ")");
     }
 
     // ---------------- Fotos con las cámaras de las gafas (Passthrough Camera API) ----------------
     WebCamTexture cam;
     Texture2D camTex;
+    Color32[] camBuf;
     int camErrors;
     readonly List<byte[]> photos = new List<byte[]>();
     readonly List<string> photoMeta = new List<string>();
@@ -779,9 +811,6 @@ public class MiceScan : MonoBehaviour
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
         string[] perms = { "horizonos.permission.HEADSET_CAMERA", "android.permission.CAMERA" };
-        bool asked = false;
-        foreach (var pm in perms) if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(pm)) asked = true;
-        if (asked) UnityEngine.Android.Permission.RequestUserPermissions(perms);
         float until = Time.time + 20f;
         while (Time.time < until)
         {
@@ -806,7 +835,7 @@ public class MiceScan : MonoBehaviour
         float wait = Time.time + 8f;
         while (t.width <= 16 && Time.time < wait) yield return null;
         Note("cámara: " + devs[0].name + " · " + t.width + "x" + t.height + " · activa " + t.isPlaying + " · giro " + t.videoRotationAngle + " · espejo vertical " + t.videoVerticallyMirrored);
-        if (t.width > 16) cam = t;
+        if (t.width > 16) cam = t; else { t.Stop(); Destroy(t); }
         yield return SendLog();
     }
 
@@ -868,8 +897,12 @@ public class MiceScan : MonoBehaviour
         foreach (var sh in shots)
             if (Mathf.Abs(Mathf.DeltaAngle(sh.z, yaw)) < 30f && Vector2.Distance(new Vector2(sh.x, sh.y), new Vector2(hp.x, hp.z)) < 1.5f) return;
         if (camTex == null || camTex.width != cam.width || camTex.height != cam.height) camTex = new Texture2D(cam.width, cam.height, TextureFormat.RGBA32, false);
-        camTex.SetPixels32(cam.GetPixels32());
+        if (camBuf == null || camBuf.Length != cam.width * cam.height) camBuf = new Color32[cam.width * cam.height];
+        cam.GetPixels32(camBuf);
+        camTex.SetPixels32(camBuf);
         camTex.Apply(false);
+        // La posición se anota antes de codificar: si la foto se descarta no se reintenta en cada fotograma
+        shots.Add(new Vector4(hp.x, hp.z, yaw, 0));
         byte[] jpg = camTex.EncodeToJPG(60);
         if (jpg == null || jpg.Length > 400000) return;
         var inv = CultureInfo.InvariantCulture;
@@ -879,7 +912,6 @@ public class MiceScan : MonoBehaviour
             + ",\"rot\":[" + q.x.ToString("0.#####", inv) + "," + q.y.ToString("0.#####", inv) + "," + q.z.ToString("0.#####", inv) + "," + q.w.ToString("0.#####", inv) + "]"
             + ",\"mirror\":" + (cam.videoVerticallyMirrored ? "true" : "false") + ",\"angle\":" + cam.videoRotationAngle + ",\"t\":" + Time.time.ToString("0.0", inv) + "}");
         photos.Add(jpg);
-        shots.Add(new Vector4(hp.x, hp.z, yaw, 0));
         if (photos.Count == 1) Note("cámara: primera foto " + jpg.Length + " bytes");
     }
 
@@ -932,30 +964,3 @@ public class MiceScan : MonoBehaviour
         uploading = false;
     }
 }
-
-#if UNITY_EDITOR
-/// Al compilar para las gafas, añade al manifiesto los permisos de las cámaras (fotos de la sala).
-public class MiceScanManifest : UnityEditor.Android.IPostGenerateGradleAndroidProject
-{
-    public int callbackOrder { get { return 10000; } }
-
-    public void OnPostGenerateGradleAndroidProject(string path)
-    {
-        try
-        {
-            string file = System.IO.Path.Combine(path, "src/main/AndroidManifest.xml");
-            if (!System.IO.File.Exists(file)) { Debug.LogWarning("[MiceScan] No se encuentra el manifiesto en " + file); return; }
-            string xml = System.IO.File.ReadAllText(file);
-            string add = "";
-            foreach (var p in new[] { "horizonos.permission.HEADSET_CAMERA", "android.permission.CAMERA" })
-                if (xml.IndexOf(p) < 0) add += "  <uses-permission android:name=\"" + p + "\" />\n";
-            if (add.Length == 0) { Debug.Log("[MiceScan] El manifiesto ya tiene los permisos de cámara"); return; }
-            int at = xml.LastIndexOf("</manifest>");
-            if (at < 0) return;
-            System.IO.File.WriteAllText(file, xml.Substring(0, at) + add + xml.Substring(at));
-            Debug.Log("[MiceScan] Permisos de cámara añadidos al manifiesto");
-        }
-        catch (System.Exception e) { Debug.LogWarning("[MiceScan] No se pudo editar el manifiesto: " + e.Message); }
-    }
-}
-#endif
