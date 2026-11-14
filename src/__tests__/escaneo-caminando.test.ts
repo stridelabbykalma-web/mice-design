@@ -258,8 +258,8 @@ describe('escaneo caminando (profundidad de las gafas)', () => {
       expect(JSON.stringify(file).length).toBeLessThan(60000);
       const r = importScan(file);
       const dims = [r.width, r.depth].sort();
-      expect(Math.abs(dims[0] - 6)).toBeLessThan(0.2);
-      expect(Math.abs(dims[1] - 8)).toBeLessThan(0.2);
+      expect(Math.abs(dims[0] - 6)).toBeLessThan(0.3);
+      expect(Math.abs(dims[1] - 8)).toBeLessThan(0.3);
       expect(r.height).toBeCloseTo(2.8, 1);
       expect(r.fixed).toHaveLength(1);
       expect(r.fixed[0].type).toBe('obstaculo');

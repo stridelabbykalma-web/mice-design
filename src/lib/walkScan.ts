@@ -18,8 +18,6 @@ export const MAX_RANGE = 5;
 const OFF = 4096;
 /** Fotogramas distintos en los que hay que ver una celda para darla por buena. */
 const MIN_FRAMES = 3;
-/** Huecos más estrechos que esto se consideran puertas. */
-const DOOR = 2.5;
 const key = (ix: number, iz: number) => (ix + OFF) * 8192 + (iz + OFF);
 
 /** Rejillas del escaneo caminando en formato de intercambio (celdas de 10 cm, enteros). */
@@ -243,41 +241,148 @@ export class WalkScan {
     const U = (p: P2) => p.x * c + p.z * s;
     const V = (p: P2) => -p.x * s + p.z * c;
 
-    // 2. Líneas de pared en cada eje (máximos del histograma) y límites de lo visto
-    const lines = (coord: (p: P2) => number, along: (p: P2) => number) => {
-      // Por cada posición, las celdas de pared ordenadas a lo largo de la línea
-      const h = new Map<number, number[]>();
-      for (const p of walls) {
-        const b = Math.round(coord(p) / CELL);
-        if (!h.has(b)) h.set(b, []);
-        h.get(b)!.push(Math.round(along(p) / CELL));
+    // 2. Rejilla girada (alineada con las paredes): suelo visto que no es pared
+    const us = free.map(U);
+    const vs = free.map(V);
+    const u0 = Math.min(...us) - 0.3;
+    const v0 = Math.min(...vs) - 0.3;
+    const gw = Math.ceil((Math.max(...us) + 0.3 - u0) / CELL);
+    const gh = Math.ceil((Math.max(...vs) + 0.3 - v0) / CELL);
+    if (gw * gh > 4_000_000) return null;
+    const wallAt = (x: number, z: number) => (this.wall.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? 0) >= MIN_FRAMES;
+    const freeAt = (x: number, z: number) => (this.free.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? 0) >= MIN_FRAMES;
+    const open = new Uint8Array(gw * gh);
+    for (let j = 0; j < gh; j++)
+      for (let i = 0; i < gw; i++) {
+        const u = u0 + (i + 0.5) * CELL;
+        const v = v0 + (j + 0.5) * CELL;
+        const x = u * c - v * s;
+        const z = u * s + v * c;
+        open[j * gw + i] = freeAt(x, z) && !wallAt(x, z) ? 1 : 0;
       }
-      // Una línea de pared es un tramo seguido de al menos 0,4 m. Las paredes perpendiculares
-      // dejan en cada posición solo su grosor (una o dos celdas sueltas) y no cuentan.
-      const run = (b: number) => {
-        const xs = [...new Set([...(h.get(b - 1) ?? []), ...(h.get(b) ?? []), ...(h.get(b + 1) ?? [])])].sort((p, q) => p - q);
-        let best = 0;
-        let cur = 0;
-        for (let i = 0; i < xs.length; i++) {
-          cur = i > 0 && xs[i] - xs[i - 1] <= 2 ? cur + (xs[i] - xs[i - 1]) : 1;
-          best = Math.max(best, cur);
+    // Distancia (en celdas, con tope) de cada celda abierta a la más cercana que no lo es
+    const RB = 12; // 1,2 m: por un hueco de menos de 2,4 m (una puerta) no se pasa a otra zona
+    const RS = 4; //  0,4 m: por donde se ha caminado basta con que quepa una persona
+    const dist = new Uint8Array(gw * gh);
+    for (let k = 0; k < gw * gh; k++) dist[k] = open[k] ? RB + 1 : 0;
+    for (let pass = 0; pass < 2; pass++)
+      for (let jj = 0; jj < gh; jj++)
+        for (let ii = 0; ii < gw; ii++) {
+          const i = pass ? gw - 1 - ii : ii;
+          const j = pass ? gh - 1 - jj : jj;
+          const k = j * gw + i;
+          if (!dist[k]) continue;
+          const d = pass ? 1 : -1;
+          const a1 = i + d >= 0 && i + d < gw ? dist[k + d] : 0;
+          const a2 = j + d >= 0 && j + d < gh ? dist[k + d * gw] : 0;
+          const m = Math.min(a1, a2) + 1;
+          if (m < dist[k]) dist[k] = m;
         }
-        return { best, total: xs.length };
+    const pathCells = this.path.map((h) => [Math.floor((U(h) - u0) / CELL), Math.floor((V(h) - v0) / CELL)]);
+    // Cerca del recorrido (a menos de 1,5 m de por donde se ha pasado)
+    const nearPath = new Uint8Array(gw * gh);
+    for (const [pi, pj] of pathCells)
+      for (let dj = -15; dj <= 15; dj++)
+        for (let di = -15; di <= 15; di++) {
+          const a = pi + di;
+          const b2 = pj + dj;
+          if (a >= 0 && b2 >= 0 && a < gw && b2 < gh && di * di + dj * dj <= 225) nearPath[b2 * gw + a] = 1;
+        }
+    /**
+     * Zona conectada con el recorrido dejando un margen `r` a paredes y muebles altos, devuelta
+     * después hasta las paredes. Con `local`, solo cerca de por donde se ha caminado.
+     */
+    const region = new Uint8Array(gw * gh);
+    const grow = (r: number, local: boolean) => {
+      const core = new Int16Array(gw * gh).fill(-1);
+      let queue: number[] = [];
+      const seed = (i: number, j: number) => {
+        if (i < 0 || j < 0 || i >= gw || j >= gh) return;
+        const k = j * gw + i;
+        if (dist[k] >= r && core[k] < 0 && (!local || nearPath[k])) {
+          core[k] = 0;
+          queue.push(k);
+        }
       };
-      const cand = [...h.keys()].map((b) => ({ b, ...run(b) })).filter((x) => x.best >= 4);
-      cand.sort((p, q) => q.total - p.total);
+      for (const [pi, pj] of pathCells) {
+        const before = queue.length;
+        for (let rr = 0; rr <= 6 && queue.length === before; rr++) for (let dj = -rr; dj <= rr; dj++) for (let di = -rr; di <= rr; di++) seed(pi + di, pj + dj);
+      }
+      for (let q = 0; q < queue.length; q++) {
+        const k = queue[q];
+        const i = k % gw;
+        const j = (k - i) / gw;
+        seed(i + 1, j);
+        seed(i - 1, j);
+        seed(i, j + 1);
+        seed(i, j - 1);
+      }
+      // Vuelta hasta las paredes: `r` pasos a través de celdas abiertas (sin saltar tabiques)
+      for (let step = 1; step <= r; step++) {
+        const nextQ: number[] = [];
+        for (const k of queue) {
+          const i = k % gw;
+          const j = (k - i) / gw;
+          for (const [a, b2] of [
+            [i + 1, j],
+            [i - 1, j],
+            [i, j + 1],
+            [i, j - 1],
+          ]) {
+            if (a < 0 || b2 < 0 || a >= gw || b2 >= gh) continue;
+            const q = b2 * gw + a;
+            if (open[q] && core[q] < 0) {
+              core[q] = step;
+              nextQ.push(q);
+            }
+          }
+        }
+        queue = queue.concat(nextQ);
+        if (!nextQ.length) break;
+      }
+      for (let k = 0; k < gw * gh; k++) if (core[k] >= 0) region[k] = 1;
+    };
+    grow(RB, false);
+    grow(RS, true);
+    const at = (i: number, j: number) => (i >= 0 && j >= 0 && i < gw && j < gh ? region[j * gw + i] : 0);
+
+    // 3. Líneas de pared: donde el borde de la zona se acumula (al menos 1,2 m en ±10 cm)
+    const pick = (hist: Float64Array, n: number) => {
+      const val = (b: number) => (b > 0 ? hist[b - 1] : 0) + hist[b] + (b + 1 < n ? hist[b + 1] : 0);
+      const cand: { b: number; v: number }[] = [];
+      for (let b = 0; b < n; b++) if (val(b) >= 12) cand.push({ b, v: val(b) });
+      cand.sort((p, q) => q.v - p.v);
       const picked: number[] = [];
       for (const x of cand) if (!picked.some((b) => Math.abs(b - x.b) < 5)) picked.push(x.b);
-      const out = picked.map((b) => b * CELL);
-      const fs = free.map(coord).sort((p, q) => p - q);
-      for (const e of [fs[Math.floor(fs.length * 0.002)], fs[Math.ceil(fs.length * 0.998) - 1]]) if (!out.some((l) => Math.abs(l - e) < 0.6)) out.push(e);
-      return out.sort((p, q) => p - q);
+      return picked.sort((p, q) => p - q);
     };
-    const lu = lines(U, V);
-    const lv = lines(V, U);
-    if (lu.length < 2 || lv.length < 2) return null;
-
-    // 3. Rectángulos entre líneas: dentro si se ha visto libre más de la mitad
+    const hu = new Float64Array(gw + 1);
+    const hv = new Float64Array(gh + 1);
+    let iMin = gw;
+    let iMax = 0;
+    let jMin = gh;
+    let jMax = 0;
+    for (let j = 0; j < gh; j++)
+      for (let i = 0; i < gw; i++) {
+        if (!region[j * gw + i]) continue;
+        if (!at(i - 1, j)) hu[i]++;
+        if (!at(i + 1, j)) hu[i + 1]++;
+        if (!at(i, j - 1)) hv[j]++;
+        if (!at(i, j + 1)) hv[j + 1]++;
+        if (i < iMin) iMin = i;
+        if (i + 1 > iMax) iMax = i + 1;
+        if (j < jMin) jMin = j;
+        if (j + 1 > jMax) jMax = j + 1;
+      }
+    if (iMax <= iMin || jMax <= jMin) return null;
+    const withEnds = (ls: number[], lo: number, hi: number) => {
+      const out = ls.filter((b) => b > lo + 4 && b < hi - 4);
+      return [lo, ...out, hi];
+    };
+    const bu = withEnds(pick(hu, gw + 1), iMin, iMax);
+    const bv = withEnds(pick(hv, gh + 1), jMin, jMax);
+    const lu = bu.map((b) => u0 + b * CELL);
+    const lv = bv.map((b) => v0 + b * CELL);
     const idx = (ls: number[], x: number) => {
       if (x < ls[0] || x >= ls[ls.length - 1]) return -1;
       let lo = 0;
@@ -291,77 +396,18 @@ export class WalkScan {
     };
     const nu = lu.length - 1;
     const nv = lv.length - 1;
-    const count = new Float64Array(nu * nv);
-    for (const p of free) {
-      const i = idx(lu, U(p));
-      const j = idx(lv, V(p));
-      if (i >= 0 && j >= 0) count[j * nu + i]++;
-    }
-    const inside = new Uint8Array(nu * nv);
+    // Rectángulos entre líneas: son sala si más de la mitad de sus celdas lo son
+    const comp = new Int32Array(nu * nv).fill(-1);
+    let bestArea = 0;
     for (let j = 0; j < nv; j++)
       for (let i = 0; i < nu; i++) {
-        const cellsIn = ((lu[i + 1] - lu[i]) * (lv[j + 1] - lv[j])) / (CELL * CELL);
-        inside[j * nu + i] = count[j * nu + i] > cellsIn * 0.5 ? 1 : 0;
-      }
-    // Paredes entre rectángulos vecinos: una zona a la que solo se llega por un hueco estrecho
-    // (una puerta abierta) y por la que no se ha caminado no forma parte de la sala.
-    const wallSet = new Set<string>();
-    for (const p of walls) wallSet.add(`${Math.round(U(p) / CELL)},${Math.round(V(p) / CELL)}`);
-    const isWall = (alongU: boolean, f: number, tt: number) => {
-      for (let d = -2; d <= 2; d++) if (wallSet.has(alongU ? `${tt},${f + d}` : `${f + d},${tt}`)) return true;
-      return false;
-    };
-    /** Mayor hueco sin pared (m) en la línea que separa dos rectángulos, medido más allá del tramo común. */
-    const opening = (alongU: boolean, fixed: number, from: number, to: number) => {
-      const f = Math.round(fixed / CELL);
-      let best = 0;
-      const t0 = Math.round((from + CELL / 2) / CELL);
-      const t1 = Math.round((to - CELL / 2) / CELL);
-      for (let t = t0; t <= t1; t++) {
-        if (isWall(alongU, f, t)) continue;
-        let lo = t;
-        let hi = t;
-        while (t - lo < 40 && !isWall(alongU, f, lo - 1)) lo--;
-        while (hi - t < 40 && !isWall(alongU, f, hi + 1)) hi++;
-        best = Math.max(best, (hi - lo + 1) * CELL);
-        t = hi;
-      }
-      return best;
-    };
-    /** Entre el rectángulo (i, j) y su vecino (a, b) solo hay paso si el hueco mide al menos 2,5 m (más que una puerta). */
-    const blocked = (i: number, j: number, a: number, b: number) =>
-      (a !== i ? opening(false, lu[Math.max(i, a)], lv[j], lv[j + 1]) : opening(true, lv[Math.max(j, b)], lu[i], lu[i + 1])) < DOOR;
-    // La sala es el grupo de rectángulos comunicados con los que ha pisado la persona
-    const comp = new Int32Array(nu * nv).fill(-1);
-    const stack: number[] = [];
-    for (const h of this.path) {
-      const i = idx(lu, U(h));
-      const j = idx(lv, V(h));
-      if (i >= 0 && j >= 0 && inside[j * nu + i] && comp[j * nu + i] < 0) {
-        comp[j * nu + i] = 0;
-        stack.push(j * nu + i);
-      }
-    }
-    let bestArea = 0;
-    while (stack.length) {
-      const k = stack.pop()!;
-      const i = k % nu;
-      const j = (k - i) / nu;
-      bestArea += (lu[i + 1] - lu[i]) * (lv[j + 1] - lv[j]);
-      for (const [a, b] of [
-        [i + 1, j],
-        [i - 1, j],
-        [i, j + 1],
-        [i, j - 1],
-      ]) {
-        if (a < 0 || b < 0 || a >= nu || b >= nv) continue;
-        const q = b * nu + a;
-        if (inside[q] && comp[q] < 0 && !blocked(i, j, a, b)) {
-          comp[q] = 0;
-          stack.push(q);
+        let n = 0;
+        for (let b = bv[j]; b < bv[j + 1]; b++) for (let a = bu[i]; a < bu[i + 1]; a++) n += region[b * gw + a];
+        if (n > (bu[i + 1] - bu[i]) * (bv[j + 1] - bv[j]) * 0.5) {
+          comp[j * nu + i] = 0;
+          bestArea += (lu[i + 1] - lu[i]) * (lv[j + 1] - lv[j]);
         }
       }
-    }
     const bestComp = 0;
     if (bestArea < 4) return null;
     // Entrantes estrechos rodeados de sala por tres lados (o islas): no son forma de la sala
