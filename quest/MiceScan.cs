@@ -48,7 +48,8 @@ public class MiceScan : MonoBehaviour
             foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
             {
                 string an = asm.GetName().Name;
-                if (!(an.Contains("Meta") || an.Contains("Oculus") || an.Contains("MRUtilityKit") || an.Contains("Assembly-CSharp"))) continue;
+                string al = an.ToLowerInvariant();
+                if (!(al.Contains("meta") || al.Contains("oculus") || al.Contains("mrutilitykit") || al.Contains("assembly-csharp"))) continue;
                 System.Type[] types;
                 try { types = asm.GetTypes(); } catch (System.Exception) { continue; }
                 foreach (var t in types)
@@ -61,6 +62,14 @@ public class MiceScan : MonoBehaviour
 
     Component FindOrAdd(string typeName)
     {
+        // Primero en la escena (los bloques de Meta ya lo traen), por nombre de tipo
+        foreach (var mb in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
+        {
+            if (mb == null || mb.GetType().Name != typeName || !mb.gameObject.scene.IsValid()) continue;
+            Note(typeName + " (" + mb.GetType().FullName + ") encontrado en la escena, activo: " + mb.isActiveAndEnabled);
+            mb.enabled = true;
+            return mb;
+        }
         var t = FindType(typeName);
         if (t == null) { Note(typeName + ": el tipo no existe en este SDK"); return null; }
         var c = FindFirstObjectByType(t) as Component;
@@ -69,6 +78,51 @@ public class MiceScan : MonoBehaviour
         var b = c as Behaviour;
         if (b != null) b.enabled = true;
         return c;
+    }
+
+    const System.Reflection.BindingFlags All = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static;
+
+    /// Anota en el diagnóstico las propiedades y campos de un objeto cuyo nombre contiene el filtro.
+    void Dump(string title, System.Type t, object o, string filter, int max)
+    {
+        var sb = new StringBuilder(title + ": ");
+        int n = 0;
+        foreach (var pr in t.GetProperties(All))
+        {
+            if (filter.Length > 0 && pr.Name.ToLowerInvariant().IndexOf(filter) < 0) continue;
+            if (pr.GetIndexParameters().Length > 0 || n++ >= max) continue;
+            string v = "?";
+            try { if (pr.CanRead && (o != null || pr.GetGetMethod(true).IsStatic)) { var val = pr.GetValue(o); v = val == null ? "null" : val.ToString(); } } catch (System.Exception) { v = "err"; }
+            sb.Append(pr.Name).Append(pr.CanWrite ? "*" : "").Append('=').Append(v).Append("; ");
+        }
+        foreach (var f in t.GetFields(All))
+        {
+            if (filter.Length > 0 && f.Name.ToLowerInvariant().IndexOf(filter) < 0) continue;
+            if (n++ >= max) continue;
+            string v = "?";
+            try { if (o != null || f.IsStatic) { var val = f.GetValue(o); v = val == null ? "null" : val.ToString(); } } catch (System.Exception) { v = "err"; }
+            sb.Append('#').Append(f.Name).Append('=').Append(v).Append("; ");
+        }
+        Note(sb.ToString());
+    }
+
+    /// El gestor de profundidad falla al «preprocesar» (oclusión suave): no hace falta para
+    /// lanzar rayos, así que se pide el modo sin oclusión.
+    void SetupDepth()
+    {
+        var depth = FindOrAdd("EnvironmentDepthManager");
+        if (depth == null) return;
+        var t = depth.GetType();
+        Dump("profundidad antes", t, depth, "", 40);
+        var pr = t.GetProperty("OcclusionShadersMode", All);
+        if (pr != null && pr.CanWrite)
+        {
+            var names = System.Enum.GetNames(pr.PropertyType);
+            string want = System.Array.IndexOf(names, "None") >= 0 ? "None" : names[0];
+            pr.SetValue(depth, System.Enum.Parse(pr.PropertyType, want));
+            Note("profundidad: modos " + string.Join(",", names) + " · se pone " + want + " · queda " + pr.GetValue(depth));
+        }
+        else Note("profundidad: no hay propiedad OcclusionShadersMode modificable");
     }
 
     void SetupRaycaster()
@@ -81,6 +135,9 @@ public class MiceScan : MonoBehaviour
         {
             if (m.Name != "Raycast") continue;
             var ps = m.GetParameters();
+            var sig = new StringBuilder("rayos: firma Raycast(");
+            foreach (var q in ps) sig.Append(q.ParameterType.Name).Append(' ').Append(q.Name).Append(", ");
+            Note(sig.Append(')').ToString());
             if (ps.Length < 2 || ps[0].ParameterType != typeof(Ray) || !ps[1].IsOut) continue;
             if (rayMethod != null && ps.Length >= rayMethod.GetParameters().Length) continue;
             rayMethod = m;
@@ -156,9 +213,13 @@ public class MiceScan : MonoBehaviour
     void Note(string m) { if (log.Count < 200) log.Add(Time.time.ToString("0.0", CultureInfo.InvariantCulture) + " " + m); }
     void OnLog(string msg, string stack, LogType type)
     {
-        if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
+        if (type != LogType.Error && type != LogType.Exception && type != LogType.Assert) return;
+        string key = msg.Length > 60 ? msg.Substring(0, 60) : msg;
+        int seen; errorCount.TryGetValue(key, out seen); errorCount[key] = seen + 1;
+        if (seen < 2)
             Note("[" + type + "] " + msg + " | " + (stack ?? "").Replace("\n", " / "));
     }
+    readonly Dictionary<string, int> errorCount = new Dictionary<string, int>();
     void OnEnable() { Application.logMessageReceived += OnLog; }
     void OnDisable() { Application.logMessageReceived -= OnLog; }
 
@@ -187,7 +248,7 @@ public class MiceScan : MonoBehaviour
     // alguna bloquea la app, la última línea recibida dice cuál ha sido.
     IEnumerator Start()
     {
-        Note("MiceScan v3 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
+        Note("MiceScan v4 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
         try
         {
             var rig = FindFirstObjectByType<OVRCameraRig>();
@@ -211,7 +272,7 @@ public class MiceScan : MonoBehaviour
 #endif
         Note("etapa 2 hecha (permiso); sigue: profundidad");
         yield return SendLog();
-        try { FindOrAdd("EnvironmentDepthManager"); }
+        try { SetupDepth(); }
         catch (System.Exception e) { Note("ERROR profundidad: " + e.Message); }
         Note("etapa 3 hecha (profundidad); sigue: rayos");
         yield return SendLog();
@@ -230,7 +291,11 @@ public class MiceScan : MonoBehaviour
                 prop.SetValue(OVRManager.instance, true);
                 Note("límite de seguridad: se pide ocultarlo · resultado " + prop.GetValue(OVRManager.instance));
             }
-            else Note("límite de seguridad: no se puede ocultar (OVRManager " + (OVRManager.instance != null) + ", propiedad " + (prop != null) + ")");
+            else
+            {
+                Note("límite de seguridad: no se puede ocultar (OVRManager " + (OVRManager.instance != null) + ", propiedad " + (prop != null) + ")");
+                Dump("OVRManager límite", typeof(OVRManager), OVRManager.instance, "boundary", 30);
+            }
         }
         catch (System.Exception e) { Note("ERROR límite: " + e.Message); }
 
@@ -317,7 +382,7 @@ public class MiceScan : MonoBehaviour
                 if (OVRManager.instance != null && prop != null && prop.CanWrite) prop.SetValue(OVRManager.instance, true);
             }
             catch (System.Exception) { }
-            Note("estado: lecturas " + frames + " · rayos con impacto " + rayHits + "/" + rayTotal + " · suelo " + free.Count + " · pared " + wall.Count + " · quieta " + still);
+            Note("estado: rayos admitidos " + RaySupported() + " · lecturas " + frames + " · rayos con impacto " + rayHits + "/" + rayTotal + " · suelo " + free.Count + " · pared " + wall.Count + " · quieta " + still);
             if (log.Count > logSent) StartCoroutine(SendLog());
         }
         if (head == null || label == null) return;
