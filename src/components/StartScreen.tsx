@@ -1,3 +1,6 @@
+import { importScan } from '../lib/scanImport';
+import { rpc } from '../lib/cloud';
+import { uid } from '../lib/db';
 import { BUILD } from '../lib/version';
 import { EXAMPLE_ROOMS, exampleProject } from '../lib/examples';
 import { roomArea } from '../lib/outline';
@@ -44,6 +47,47 @@ const METHODS: { id: SpaceMethod; title: string; text: string; icon: string; whe
     when: 'Cuando no hay planos ni sesión fotográfica.',
   },
 ];
+
+/** Pantalla de inicio: crear una sala nueva con el código que da la app de las gafas (MICE Scan). */
+function ScanCodeStart({ hotel, onDone }: { hotel: string; onDone: () => void }) {
+  const openProject = useStore((s) => s.openProject);
+  // Enlace directo: …/#s-123456 deja el código ya escrito
+  const [code, setCode] = useState(() => location.hash.match(/^#s-(\d{6})$/)?.[1] ?? '');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const take = async () => {
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = importScan(await rpc<unknown>('scan_take', { p_code: code }));
+      const room = r.name?.trim() || `Sala escaneada el ${new Date().toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
+      const space = { ...blankSpace('fotogrametria', room, r.width, r.depth, r.height), outline: r.outline };
+      const p = newProject(space, `Evento en ${room}`, hotel);
+      p.items = [...r.items.map(({ id: _id, ...it }) => it), ...r.fixed].map((it) => ({ ...it, id: uid('i_') }));
+      await db.saveProject(p);
+      if (location.hash.startsWith('#s-')) history.replaceState(null, '', location.pathname + location.search);
+      onDone();
+      openProject(p);
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="callout">
+      <strong>🥽 Traer una sala escaneada con la app de las gafas (MICE Scan)</strong>
+      <p className="hint">Escribe el código de 6 cifras que muestran las gafas al terminar el escaneo. Se crea la sala con su forma, su altura y sus muebles.</p>
+      <div className="row gap">
+        <input inputMode="numeric" placeholder="Código de 6 cifras" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} style={{ width: 170, fontSize: 18 }} />
+        <button className="btn primary" disabled={busy || code.length !== 6} onClick={take}>
+          {busy ? 'Trayendo…' : 'Crear la sala'}
+        </button>
+      </div>
+      {msg && <p className="error">{msg}</p>}
+    </div>
+  );
+}
 
 export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
   const openProject = useStore((s) => s.openProject);
@@ -172,6 +216,8 @@ export default function StartScreen({ onSurvey }: { onSurvey: () => void }) {
             return p;
           }}
         />
+
+        <ScanCodeStart hotel={hotel} onDone={refresh} />
 
         <h2>Salas de ejemplo</h2>
         <p className="hint">Salas típicas de hotel con su evento ya montado por fases. Ábrelas para probar la app o como punto de partida.</p>
