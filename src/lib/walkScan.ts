@@ -121,6 +121,17 @@ export class WalkScan {
    * (MICE Scan), que acumula las mismas celdas que `addFrame` y las manda ya filtradas.
    */
   static fromGrids(g: WalkGrids): WalkScan {
+    // Un escaneo llega de fuera: se comprueba antes de reservar memoria (un tramo de suelo
+    // con índices enormes bloquearía el navegador)
+    const ok = (n: unknown) => Number.isInteger(n) && Math.abs(n as number) < OFF;
+    if (!g || !Array.isArray(g.free) || !Array.isArray(g.wall) || !Array.isArray(g.obj) || !Array.isArray(g.path)) throw new Error('El escaneo no es válido.');
+    let cells = 0;
+    for (const row of g.free) {
+      if (!Array.isArray(row) || !row.every(ok)) throw new Error('El escaneo no es válido.');
+      for (let i = 1; i + 1 < row.length; i += 2) cells += Math.max(0, row[i + 1] - row[i] + 1);
+    }
+    if (cells > 3_000_000 || g.wall.length > 2_000_000 || g.obj.length > 3_000_000 || g.path.length > 200_000) throw new Error('El escaneo es demasiado grande.');
+    if (!g.wall.every(ok) || !g.obj.every((n) => Number.isFinite(n)) || !g.path.every((n) => Number.isFinite(n))) throw new Error('El escaneo no es válido.');
     const w = new WalkScan();
     // Suelo visto: por filas, tramos [x0, x1] de celdas seguidas
     for (const row of g.free) for (let i = 1; i + 1 < row.length; i += 2) for (let x = row[i]; x <= row[i + 1]; x++) w.free.set(key(x, row[0]), MIN_FRAMES);
@@ -244,10 +255,13 @@ export class WalkScan {
     // 2. Rejilla girada (alineada con las paredes): suelo visto que no es pared
     const us = free.map(U);
     const vs = free.map(V);
-    const u0 = Math.min(...us) - 0.3;
-    const v0 = Math.min(...vs) - 0.3;
-    const gw = Math.ceil((Math.max(...us) + 0.3 - u0) / CELL);
-    const gh = Math.ceil((Math.max(...vs) + 0.3 - v0) / CELL);
+    // (sin Math.min(...lista): con salones grandes la lista no cabe como argumentos)
+    const lo = (a: number[]) => a.reduce((m, x) => (x < m ? x : m), Infinity);
+    const hi = (a: number[]) => a.reduce((m, x) => (x > m ? x : m), -Infinity);
+    const u0 = lo(us) - 0.3;
+    const v0 = lo(vs) - 0.3;
+    const gw = Math.ceil((hi(us) + 0.3 - u0) / CELL);
+    const gh = Math.ceil((hi(vs) + 0.3 - v0) / CELL);
     if (gw * gh > 4_000_000) return null;
     const wallAt = (x: number, z: number) => (this.wall.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? 0) >= MIN_FRAMES;
     const freeAt = (x: number, z: number) => (this.free.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? 0) >= MIN_FRAMES;
@@ -561,10 +575,18 @@ export class WalkScan {
       if (group.length < 10) continue;
       // Un grupo grande y poco denso son varios muebles juntos (sofás, butacas y mesas de un
       // salón): se parte en zonas de 1,5 m y cada una da su propia caja.
-      const gu0 = Math.min(...group.map((g) => g.u));
-      const gv0 = Math.min(...group.map((g) => g.v));
-      const gw2 = Math.max(...group.map((g) => g.u)) - gu0 + 1;
-      const gh2 = Math.max(...group.map((g) => g.v)) - gv0 + 1;
+      let gu0 = Infinity;
+      let gv0 = Infinity;
+      let gu1 = -Infinity;
+      let gv1 = -Infinity;
+      for (const g of group) {
+        if (g.u < gu0) gu0 = g.u;
+        if (g.u > gu1) gu1 = g.u;
+        if (g.v < gv0) gv0 = g.v;
+        if (g.v > gv1) gv1 = g.v;
+      }
+      const gw2 = gu1 - gu0 + 1;
+      const gh2 = gv1 - gv0 + 1;
       const sparse = gw2 * gh2 * CELL * CELL > 3 && group.length < gw2 * gh2 * 0.7;
       const parts = new Map<string, typeof group>();
       for (const g of group) {

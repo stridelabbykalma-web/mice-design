@@ -269,4 +269,21 @@ describe('escaneo caminando (profundidad de las gafas)', () => {
       BOXES = [];
     }
   });
+
+  it('rechaza un escaneo manipulado sin bloquear el navegador y admite salones grandes', async () => {
+    const { importScan } = await import('../lib/scanImport');
+    const t0 = Date.now();
+    expect(() => importScan({ format: 'mice-roomplan', walls: [], walk: { cell: 0.1, free: [[0, -1e9, 1e9]], wall: [], obj: [], path: [] } })).toThrow();
+    expect(() => importScan({ format: 'mice-roomplan', walls: [], walk: {} })).toThrow('no es válido');
+    expect(Date.now() - t0).toBeLessThan(500);
+    // Salón de 50 × 30 m (150.000 celdas de suelo): antes fallaba por el tamaño de las listas
+    const free: number[][] = [];
+    for (let z = -150; z < 150; z++) free.push([z, -250, 249]);
+    const wall: number[] = [];
+    for (let x = -251; x <= 250; x++) wall.push(x, -151, x, 150);
+    for (let z = -151; z <= 150; z++) wall.push(-251, z, 250, z);
+    const r = importScan({ format: 'mice-roomplan', walls: [], walk: { cell: 0.1, free, wall, obj: [], path: [0, 0, 500, 0, 500, 500] } });
+    expect(Math.abs(r.width - 50)).toBeLessThan(0.5);
+    expect(Math.abs(r.depth - 30)).toBeLessThan(0.5);
+  });
 });
