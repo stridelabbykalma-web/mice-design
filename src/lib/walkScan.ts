@@ -482,6 +482,10 @@ export class WalkScan {
    * (de un armario solo se ve el frente).
    */
   obstacles(room: WalkOutline): Obstacle[] {
+    // Las alturas solo se miden hasta 2,3 m: lo que llega ahí (pilares, armarios de suelo a
+    // techo, tabiques) sube hasta el techo, para que no quede a otra altura que las paredes.
+    const ceil = this.ceiling;
+    const tall = (h: number) => (h >= 2.15 && ceil ? ceil : h);
     const c = Math.cos((room.angle * Math.PI) / 180);
     const s = Math.sin((room.angle * Math.PI) / 180);
     const poly = room.outline;
@@ -532,7 +536,7 @@ export class WalkScan {
       }
       hs.sort((a, b) => a - b);
       const h = hs.length ? Math.round(hs[Math.floor(hs.length * 0.9)] * 20) / 20 : 2;
-      out.push({ x: ((f.u0 + f.u1) / 2) * c - ((f.v0 + f.v1) / 2) * s, z: ((f.u0 + f.u1) / 2) * s + ((f.v0 + f.v1) / 2) * c, w: f.u1 - f.u0, d: f.v1 - f.v0, h: Math.max(0.4, h), rot: -room.angle });
+      out.push({ x: ((f.u0 + f.u1) / 2) * c - ((f.v0 + f.v1) / 2) * s, z: ((f.u0 + f.u1) / 2) * s + ((f.v0 + f.v1) / 2) * c, w: f.u1 - f.u0, d: f.v1 - f.v0, h: tall(Math.max(0.4, h)), rot: -room.angle });
     }
     const inFilled = (u: number, v: number) => room.filled.some((f) => u > f.u0 - 0.25 && u < f.u1 + 0.25 && v > f.v0 - 0.25 && v < f.v1 + 0.25);
     // Grupos de celdas vecinas (se toleran huecos de 20 cm)
@@ -575,7 +579,7 @@ export class WalkScan {
       v1 += reach(um, v1, 0, 1);
       const hs = group.map((g) => g.h).sort((a, b) => a - b);
       const h = Math.round(hs[Math.floor(hs.length * 0.9)] * 20) / 20;
-      boxes.push({ u0, u1, v0, v1, h: Math.max(0.4, h) });
+      boxes.push({ u0, u1, v0, v1, h: tall(Math.max(0.4, h)) });
     }
     // Trozos del mismo mueble (se tocan y tienen una altura parecida): se unen
     for (let merged = true; merged; ) {
