@@ -3,41 +3,49 @@ import type { CatalogDef } from '../types';
 import { findDef, itemDims } from '../catalog';
 import type { Item } from '../types';
 
-/** Lo que se puede añadir desde la paleta de las gafas. */
-export const XR_PALETTE: { type: string; label: string }[] = [
-  { type: 'mesa-redonda-180', label: 'Mesa Ø180' },
-  { type: 'mesa-redonda-150', label: 'Mesa Ø150' },
-  { type: 'mesa-imperial', label: 'Mesa rect.' },
-  { type: 'mesa-coctel', label: 'Cóctel' },
-  { type: 'silla', label: 'Silla' },
-  { type: 'escenario', label: 'Escenario' },
-  { type: 'atril', label: 'Atril' },
-  { type: 'barra', label: 'Barra' },
-  { type: 'buffet', label: 'Buffet' },
-  { type: 'planta', label: 'Planta' },
+/**
+ * Panel de muebles de las gafas: pestañas por tipo, una cuadrícula de 4 × 2 muebles y una fila
+ * de acciones. Se arrastra un mueble del panel a la sala para ponerlo.
+ */
+export const XR_TABS: { id: string; label: string; types: string[] }[] = [
+  { id: 'mesas', label: 'Mesas', types: ['mesa-redonda-180', 'mesa-redonda-150', 'mesa-imperial', 'mesa-escuela', 'mesa-coctel', 'buffet', 'barra'] },
+  { id: 'asientos', label: 'Asientos', types: ['silla', 'silla-conferencia', 'sofa', 'butaca'] },
+  { id: 'escenario', label: 'Escenario', types: ['escenario', 'atril', 'pantalla', 'pista-baile'] },
+  { id: 'deco', label: 'Decoración', types: ['planta', 'photocall', 'alfombra', 'uplight', 'foco', 'totem', 'atril-bienvenida'] },
 ];
+
+/** Pestañas del panel; la del hotel solo si tiene muebles propios (escaneados o importados). */
+export function xrTabs(custom: CatalogDef[]) {
+  const own = custom.filter((d) => d.category !== 'mesa-deco' && d.category !== 'arquitectura').slice(0, PANEL_COLS * PANEL_ROWS);
+  return own.length ? [...XR_TABS, { id: 'hotel', label: 'Del hotel', types: own.map((d) => d.type) }] : XR_TABS;
+}
 
 export const XR_ACTIONS = [
   { id: 'deshacer', label: '↶ Deshacer' },
   { id: 'recolocar', label: 'Recolocar sala' },
-  { id: 'cerrar', label: 'Cerrar' },
+  { id: 'cerrar', label: 'Cerrar panel' },
 ] as const;
 export type XrAction = (typeof XR_ACTIONS)[number]['id'];
 
-export const MENU_COLS = 5;
-export const MENU_ROWS = 3; // 2 de muebles + 1 de acciones
+export const PANEL_COLS = 4;
+export const PANEL_ROWS = 2;
+/** Alto relativo de cada banda del panel: pestañas, cuadrícula y acciones. */
+export const PANEL_BANDS = { tabs: 0.14, grid: 0.7, actions: 0.16 };
 
-/** Casilla de la paleta en la posición (u, v) de la imagen (0..1, v = 0 abajo como en three.js). */
-export function menuTile(u: number, v: number): { kind: 'item'; index: number } | { kind: 'action'; id: XrAction } | null {
+export type PanelHit = { kind: 'tab'; index: number } | { kind: 'item'; type: string } | { kind: 'action'; id: XrAction } | null;
+
+/** Qué hay en el punto (u, v) del panel (0..1, v = 0 abajo como en three.js). */
+export function panelHit(u: number, v: number, tabs: { types: string[] }[], tab: number): PanelHit {
   if (u < 0 || u > 1 || v < 0 || v > 1) return null;
-  const row = Math.min(MENU_ROWS - 1, Math.floor((1 - v) * MENU_ROWS));
-  if (row < 2) {
-    const col = Math.min(MENU_COLS - 1, Math.floor(u * MENU_COLS));
-    const index = row * MENU_COLS + col;
-    return index < XR_PALETTE.length ? { kind: 'item', index } : null;
+  const y = 1 - v;
+  if (y < PANEL_BANDS.tabs) return { kind: 'tab', index: Math.min(tabs.length - 1, Math.floor(u * tabs.length)) };
+  if (y < PANEL_BANDS.tabs + PANEL_BANDS.grid) {
+    const row = Math.min(PANEL_ROWS - 1, Math.floor(((y - PANEL_BANDS.tabs) / PANEL_BANDS.grid) * PANEL_ROWS));
+    const col = Math.min(PANEL_COLS - 1, Math.floor(u * PANEL_COLS));
+    const type = tabs[tab]?.types[row * PANEL_COLS + col];
+    return type ? { kind: 'item', type } : null;
   }
-  const a = Math.min(XR_ACTIONS.length - 1, Math.floor(u * XR_ACTIONS.length));
-  return { kind: 'action', id: XR_ACTIONS[a].id };
+  return { kind: 'action', id: XR_ACTIONS[Math.min(XR_ACTIONS.length - 1, Math.floor(u * XR_ACTIONS.length))].id };
 }
 
 /** Lo que no se mueve desde las gafas: la arquitectura, lo escaneado y lo que va encima de las mesas. */
