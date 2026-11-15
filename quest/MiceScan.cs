@@ -53,7 +53,7 @@ public class MiceScan : MonoBehaviour
                 System.Type[] types;
                 try { types = asm.GetTypes(); } catch (System.Exception) { continue; }
                 foreach (var t in types)
-                    if ((t.Name == "EnvironmentRaycastManager" || t.Name == "EnvironmentDepthManager") && typeof(Component).IsAssignableFrom(t)) typeCache[t.Name] = t;
+                    if ((t.Name == "EnvironmentRaycastManager" || t.Name == "EnvironmentDepthManager" || t.Name == "PassthroughCameraAccess") && typeof(Component).IsAssignableFrom(t)) typeCache[t.Name] = t;
             }
         }
         System.Type r;
@@ -146,6 +146,38 @@ public class MiceScan : MonoBehaviour
     {
         UnityEditor.EditorApplication.delayCall += EditorBoundarySetup;
         UnityEditor.EditorApplication.delayCall += EditorManifestSetup;
+        UnityEditor.EditorApplication.delayCall += EditorCameraSetup;
+    }
+
+    /// Activa en el OVRManager de la escena «Enable Passthrough Camera Access» (lo pide Meta para
+    /// las fotos con las cámaras de las gafas) y guarda la escena.
+    static void EditorCameraSetup()
+    {
+        try
+        {
+            var found = new StringBuilder();
+            bool changed = false;
+            foreach (var mgr in Object.FindObjectsByType<OVRManager>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                foreach (var f in typeof(OVRManager).GetFields(All))
+                {
+                    string n = f.Name.ToLowerInvariant();
+                    if (f.FieldType != typeof(bool) || n.IndexOf("passthroughcamera") < 0) continue;
+                    found.Append(f.Name).Append('=').Append(f.GetValue(mgr)).Append("; ");
+                    if (!(bool)f.GetValue(mgr)) { f.SetValue(mgr, true); changed = true; }
+                }
+                if (changed) UnityEditor.EditorUtility.SetDirty(mgr);
+            }
+            if (found.Length == 0) { Debug.LogWarning("[MiceScan] No encuentro la opción «Passthrough Camera Access» en el OVRManager: márcala a mano en el Camera Rig"); return; }
+            if (changed)
+            {
+                UnityEditor.SceneManagement.EditorSceneManager.MarkAllScenesDirty();
+                UnityEditor.SceneManagement.EditorSceneManager.SaveOpenScenes();
+                Debug.Log("[MiceScan] Acceso a la cámara de las gafas activado en el OVRManager (antes: " + found + ")");
+            }
+            else Debug.Log("[MiceScan] Acceso a la cámara de las gafas ya activado: " + found);
+        }
+        catch (System.Exception e) { Debug.LogWarning("[MiceScan] No se pudo activar el acceso a la cámara: " + e.Message); }
     }
 
     /// Añade al manifiesto del proyecto los permisos de las cámaras de las gafas (fotos de la sala).
@@ -345,7 +377,7 @@ public class MiceScan : MonoBehaviour
     // alguna bloquea la app, la última línea recibida dice cuál ha sido.
     IEnumerator Start()
     {
-        Note("MiceScan v9 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
+        Note("MiceScan v10 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
         try
         {
             var rig = FindFirstObjectByType<OVRCameraRig>();
@@ -543,7 +575,7 @@ public class MiceScan : MonoBehaviour
         foreach (var kv in wall) if (kv.Value >= MinFrames) walls++;
         string s = (roomName.Length > 0 ? "Sala: " + roomName : "Sala sin nombre (A o X: ponerle nombre)") + "\n"
                  + "Camina por toda la sala mirando a las paredes\n"
-                 + "Suelo visto: " + m2.ToString("0") + " m2 · paredes: " + (walls * Cell).ToString("0") + " m · fotos: " + photos.Count + (cam == null ? " (sin cámara)" : "") + "\n"
+                 + "Suelo visto: " + m2.ToString("0") + " m2 · paredes: " + (walls * Cell).ToString("0") + " m · fotos: " + photos.Count + (cam == null && !PcaPlaying() ? " (sin cámara)" : "") + "\n"
                  + "Sala anotada por las gafas: " + (sceneCount > 0 ? sceneWalls + " paredes, " + sceneFurniture + " muebles" : "ninguna (botón lateral: escanearla)") + "\n"
                  + "Gatillo: terminar y subir · B/Y: empezar de nuevo · A/X: nombre · Lateral: escaneo de Meta";
         return status.Length > 0 ? s + "\n" + status : s;
@@ -848,7 +880,19 @@ public class MiceScan : MonoBehaviour
         }
         foreach (var pm in perms) Note("cámara: permiso " + pm + " = " + UnityEngine.Android.Permission.HasUserAuthorizedPermission(pm));
         try { CameraInfo(); } catch (System.Exception e) { Note("cámara: sin datos de Camera2 (" + e.Message + ")"); }
+        try { ManifestPermissions(); } catch (System.Exception e) { Note("manifiesto: no se pudo leer (" + e.Message + ")"); }
 #endif
+        try { if (OVRManager.instance != null) Dump("OVRManager cámara", typeof(OVRManager), OVRManager.instance, "camera", 12); } catch (System.Exception) { }
+        // Primero el componente de Meta para las cámaras de las gafas (PassthroughCameraAccess)
+        bool pcaOk = false;
+        try { pcaOk = SetupPca(); } catch (System.Exception e) { Note("ERROR cámara de Meta: " + e.Message); }
+        if (pcaOk)
+        {
+            float pw = Time.time + 8f;
+            while (!PcaPlaying() && Time.time < pw) yield return null;
+            Note("cámara de Meta: activa " + PcaPlaying());
+            if (PcaPlaying()) { yield return SendLog(); yield break; }
+        }
         WebCamDevice[] devs = new WebCamDevice[0];
         try { devs = WebCamTexture.devices; } catch (System.Exception e) { Note("ERROR cámara (lista): " + e.Message); }
         var names = new StringBuilder("cámara: dispositivos " + devs.Length + ": ");
@@ -912,32 +956,135 @@ public class MiceScan : MonoBehaviour
     }
 #endif
 
+    // ---- Cámara mediante el componente de Meta (MRUK: PassthroughCameraAccess) ----
+    MonoBehaviour pca;
+    System.Reflection.MethodInfo pcaGetTex, pcaGetPose;
+    System.Reflection.PropertyInfo pcaPlaying;
+    RenderTexture pcaRT;
+
+    static void SetMember(object o, string name, object value)
+    {
+        var t = o.GetType();
+        var p = t.GetProperty(name, All);
+        if (p != null && p.CanWrite)
+        {
+            if (value is string && p.PropertyType.IsEnum) value = System.Enum.Parse(p.PropertyType, (string)value);
+            p.SetValue(o, value); return;
+        }
+        var f = t.GetField(name, All);
+        if (f == null) f = t.GetField("_" + char.ToLowerInvariant(name[0]) + name.Substring(1), All);
+        if (f == null) f = t.GetField(char.ToLowerInvariant(name[0]) + name.Substring(1), All);
+        if (f == null) throw new System.Exception("sin " + name);
+        if (value is string && f.FieldType.IsEnum) value = System.Enum.Parse(f.FieldType, (string)value);
+        f.SetValue(o, value);
+    }
+
+    bool SetupPca()
+    {
+        foreach (var mb in Resources.FindObjectsOfTypeAll<MonoBehaviour>())
+            if (mb != null && mb.GetType().Name == "PassthroughCameraAccess" && mb.gameObject.scene.IsValid()) { pca = mb; break; }
+        if (pca == null)
+        {
+            var t = FindType("PassthroughCameraAccess");
+            if (t == null) { Note("cámara de Meta: el componente PassthroughCameraAccess no existe en este SDK"); return false; }
+            var go = new GameObject("MiceScanCamara");
+            go.SetActive(false);
+            pca = (MonoBehaviour)go.AddComponent(t);
+            try { SetMember(pca, "CameraPosition", "Left"); } catch (System.Exception e) { Note("cámara de Meta: posición " + e.Message); }
+            try { SetMember(pca, "RequestedResolution", new Vector2Int(1280, 960)); } catch (System.Exception e) { Note("cámara de Meta: resolución " + e.Message); }
+            go.SetActive(true);
+            Note("cámara de Meta: componente añadido (" + t.FullName + ")");
+        }
+        else Note("cámara de Meta: componente encontrado en la escena");
+        pca.enabled = true;
+        var pt = pca.GetType();
+        pcaGetTex = pt.GetMethod("GetTexture", All, null, System.Type.EmptyTypes, null);
+        pcaGetPose = pt.GetMethod("GetCameraPose", All, null, System.Type.EmptyTypes, null);
+        pcaPlaying = pt.GetProperty("IsPlaying", All);
+        Note("cámara de Meta: GetTexture " + (pcaGetTex != null) + " · GetCameraPose " + (pcaGetPose != null) + " · IsPlaying " + (pcaPlaying != null));
+        return pcaGetTex != null && pcaPlaying != null;
+    }
+
+    bool PcaPlaying()
+    {
+        try { return pca != null && pcaPlaying != null && (bool)pcaPlaying.GetValue(pca); } catch (System.Exception) { return false; }
+    }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+    /// Permisos que lleva de verdad la app instalada (para saber si la compilación incluyó el de la cámara).
+    void ManifestPermissions()
+    {
+        using (var up = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+        using (var act = up.GetStatic<AndroidJavaObject>("currentActivity"))
+        using (var pm = act.Call<AndroidJavaObject>("getPackageManager"))
+        using (var info = pm.Call<AndroidJavaObject>("getPackageInfo", act.Call<string>("getPackageName"), 4096))
+        {
+            string[] req = info.Get<string[]>("requestedPermissions");
+            Note("manifiesto de la app: " + (req != null ? string.Join(", ", req) : "sin permisos"));
+        }
+    }
+#endif
+
     /// Hace una foto si la cabeza está quieta, mira más o menos horizontal y no hay ya otra
     /// tomada desde cerca con un rumbo parecido.
     void TryCapture()
     {
-        if (cam == null || !cam.isPlaying || !cam.didUpdateThisFrame || photos.Count >= MaxPhotos || uploading) return;
+        bool usePca = PcaPlaying();
+        if (!usePca && (cam == null || !cam.isPlaying || !cam.didUpdateThisFrame)) return;
+        if (photos.Count >= MaxPhotos || uploading) return;
         Vector3 f = head.forward;
         if (Mathf.Abs(f.y) > 0.45f) return;
         float yaw = Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
         Vector3 hp = head.position;
         foreach (var sh in shots)
             if (Mathf.Abs(Mathf.DeltaAngle(sh.z, yaw)) < 30f && Vector2.Distance(new Vector2(sh.x, sh.y), new Vector2(hp.x, hp.z)) < 1.5f) return;
-        if (camTex == null || camTex.width != cam.width || camTex.height != cam.height) camTex = new Texture2D(cam.width, cam.height, TextureFormat.RGBA32, false);
-        if (camBuf == null || camBuf.Length != cam.width * cam.height) camBuf = new Color32[cam.width * cam.height];
-        cam.GetPixels32(camBuf);
-        camTex.SetPixels32(camBuf);
-        camTex.Apply(false);
+        Texture src = null;
+        Vector3 cp = hp;
+        Quaternion cq = head.rotation;
+        if (usePca)
+        {
+            src = pcaGetTex.Invoke(pca, null) as Texture;
+            if (src == null || src.width <= 16) return;
+            if (pcaGetPose != null)
+            {
+                try
+                {
+                    object pose = pcaGetPose.Invoke(pca, null);
+                    if (pose is Pose) { cp = ((Pose)pose).position; cq = ((Pose)pose).rotation; }
+                }
+                catch (System.Exception) { }
+            }
+        }
+        int cw = usePca ? src.width : cam.width, chh = usePca ? src.height : cam.height;
+        if (camTex == null || camTex.width != cw || camTex.height != chh) camTex = new Texture2D(cw, chh, TextureFormat.RGBA32, false);
+        if (usePca)
+        {
+            if (pcaRT == null || pcaRT.width != cw || pcaRT.height != chh) { if (pcaRT != null) pcaRT.Release(); pcaRT = new RenderTexture(cw, chh, 0, RenderTextureFormat.ARGB32); }
+            var prev = RenderTexture.active;
+            Graphics.Blit(src, pcaRT);
+            RenderTexture.active = pcaRT;
+            camTex.ReadPixels(new Rect(0, 0, cw, chh), 0, 0, false);
+            camTex.Apply(false);
+            RenderTexture.active = prev;
+            camBuf = camTex.GetPixels32();
+        }
+        else
+        {
+            if (camBuf == null || camBuf.Length != cw * chh) camBuf = new Color32[cw * chh];
+            cam.GetPixels32(camBuf);
+            camTex.SetPixels32(camBuf);
+            camTex.Apply(false);
+        }
         // La posición se anota antes de codificar: si la foto se descarta no se reintenta en cada fotograma
         shots.Add(new Vector4(hp.x, hp.z, yaw, 0));
         byte[] jpg = camTex.EncodeToJPG(60);
         if (jpg == null || jpg.Length > 400000) return;
         var inv = CultureInfo.InvariantCulture;
-        Quaternion q = head.rotation;
-        photoMeta.Add("{\"w\":" + cam.width + ",\"h\":" + cam.height
-            + ",\"pos\":[" + hp.x.ToString("0.###", inv) + "," + hp.y.ToString("0.###", inv) + "," + hp.z.ToString("0.###", inv) + "]"
+        Quaternion q = cq;
+        photoMeta.Add("{\"w\":" + cw + ",\"h\":" + chh + ",\"src\":\"" + (usePca ? "meta" : "webcam") + "\""
+            + ",\"pos\":[" + cp.x.ToString("0.###", inv) + "," + cp.y.ToString("0.###", inv) + "," + cp.z.ToString("0.###", inv) + "]"
             + ",\"rot\":[" + q.x.ToString("0.#####", inv) + "," + q.y.ToString("0.#####", inv) + "," + q.z.ToString("0.#####", inv) + "," + q.w.ToString("0.#####", inv) + "]"
-            + ",\"mirror\":" + (cam.videoVerticallyMirrored ? "true" : "false") + ",\"angle\":" + cam.videoRotationAngle + ",\"t\":" + Time.time.ToString("0.0", inv) + "}");
+            + ",\"mirror\":" + (!usePca && cam.videoVerticallyMirrored ? "true" : "false") + ",\"angle\":" + (usePca ? 0 : cam.videoRotationAngle) + ",\"t\":" + Time.time.ToString("0.0", inv) + "}");
         photos.Add(jpg);
         if (photos.Count == 1)
         {
