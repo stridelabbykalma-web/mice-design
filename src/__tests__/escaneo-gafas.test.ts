@@ -217,6 +217,29 @@ describe('medir la sala con las gafas', () => {
     expect(r.fixed).toHaveLength(2);
   });
 
+  it('app nativa: sala en L anotada por Meta (el suelo llega como rectángulo envolvente): entran todas sus paredes', async () => {
+    const { importScan } = await import('../lib/scanImport');
+    const qy = (deg: number) => [0, Math.sin((deg * Math.PI) / 360), 0, Math.cos((deg * Math.PI) / 360)];
+    const wallA = (x: number, z: number, deg: number, w: number) => ({ label: 'WALL_FACE', room: 0, pos: [x, 1.25, z], rot: qy(deg), rect: [-w / 2, -1.25, w, 2.5] });
+    const up = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+    // L de 8 × 6 m sin la esquina x 4..8, z 3..6 (caso real: un salón de 17 lados perdía 10 paredes)
+    const scene = [
+      wallA(4, 0, 0, 8),
+      wallA(8, 1.5, 270, 3),
+      wallA(6, 3, 180, 4),
+      wallA(4, 4.5, 270, 3),
+      wallA(2, 6, 180, 4),
+      wallA(0, 3, 90, 6),
+      { label: 'FLOOR', room: 0, pos: [4, 0, 3], rot: up, rect: [-4, -3, 8, 6] },
+      { label: 'DOOR_FRAME', room: 0, pos: [4, 1.05, 4.5], rot: qy(270), rect: [-0.45, -1.05, 0.9, 2.1] },
+    ];
+    const walk = { cell: 0.1, free: [], wall: [], obj: [], path: [100, -100, 200, -100, 100, -400] };
+    const r = importScan({ format: 'mice-roomplan', version: 2, walls: [], walk, scene });
+    expect([r.width, r.depth]).toEqual([8, 6]);
+    expect(r.outline).toHaveLength(6);
+    expect(r.items.filter((i) => i.type === 'puerta')).toHaveLength(1);
+  });
+
   it('fotos del escaneo: posición en la sala y pared a la que miran', async () => {
     const { placePhotos } = await import('../lib/scanImport');
     const { rectOutline } = await import('../lib/outline');

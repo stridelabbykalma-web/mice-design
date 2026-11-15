@@ -122,15 +122,27 @@ export function importScan(json: unknown, fallbackHeight = 3): ScanResult {
     for (let i = 0; f.walk && i + 1 < f.walk.path.length; i += 2) path.push({ x: f.walk.path[i] / 100, z: f.walk.path[i + 1] / 100 });
     let head = path[0] ?? { x: 0, z: 0 };
     let most = 0;
-    for (const fl of all.filter((p) => p.label === 'floor')) {
-      const poly = fl.points.map((q) => ({ x: q.x, z: q.z }));
-      const inside = path.filter((q) => pointInPolygon(q, poly));
-      if (inside.length > most) {
-        most = inside.length;
-        head = inside[0];
+    let room: number | undefined;
+    for (const rm of [...new Set(f.scene.map((a) => a.room))]) {
+      for (const fl of sceneToPlanes(f.scene, rm).filter((p) => p.label === 'floor')) {
+        const poly = fl.points.map((q) => ({ x: q.x, z: q.z }));
+        const inside = path.filter((q) => pointInPolygon(q, poly));
+        if (inside.length > most) {
+          most = inside.length;
+          head = inside[0];
+          room = rm;
+        }
       }
     }
-    const planes = currentRoomPlanes(all, head);
+    // Meta agrupa lo anotado por habitación: se usan todas las paredes y muebles de la habitación
+    // recorrida (el suelo llega como su rectángulo envolvente, así que filtrar por cercanía a él
+    // perdería paredes en salas que no son rectangulares). De las contiguas solo se añaden las
+    // puertas y ventanas del tabique común, que las gafas suelen anotar al otro lado.
+    const near = currentRoomPlanes(all, head);
+    const planes =
+      room !== undefined && f.scene.every((a) => typeof a.room === 'number')
+        ? [...sceneToPlanes(f.scene, room), ...near.filter((p) => p.label === 'door' || p.label === 'window')]
+        : near;
     if (planes.filter((p) => p.label === 'wall').length >= 3) {
       const r = parseRoomPlan(planesToRoomPlan(planes));
       const metaBoxes = planeObstacles(planes);
