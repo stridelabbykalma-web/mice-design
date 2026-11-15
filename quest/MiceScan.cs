@@ -5,7 +5,6 @@
 // sube el resultado y muestra un código de 6 cifras. En la web (panel Espacio → «Escaneo de
 // la app de las gafas») se escribe ese código y la sala aparece con sus muebles.
 // La planta se reconstruye en la web (src/lib/walkScan.ts): aquí solo se recogen los datos.
-// Cada escaneo es nuevo: lo que las gafas ya tenían guardado de la sala al abrir la app se ignora.
 //
 // Uso en Unity: escena con los bloques «Camera Rig», «Passthrough» y «Occlusion»; crear un
 // objeto vacío y añadirle este script.
@@ -346,7 +345,7 @@ public class MiceScan : MonoBehaviour
     // alguna bloquea la app, la última línea recibida dice cuál ha sido.
     IEnumerator Start()
     {
-        Note("MiceScan v10 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
+        Note("MiceScan v9 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
         try
         {
             var rig = FindFirstObjectByType<OVRCameraRig>();
@@ -444,45 +443,6 @@ public class MiceScan : MonoBehaviour
         Note("arranque completo");
         yield return SendLog();
         ready = true;
-
-        // Escaneo nuevo cada vez: se apuntan las salas que las gafas ya tenían guardadas para no
-        // usarlas, y se abre el escaneo de Meta para que la sala se capture ahora.
-        float until = Time.time + 8f;
-        int lastCount = -1, stable = 0;
-        while (Time.time < until && stable < 2)
-        {
-            yield return new WaitForSeconds(1f);
-            int c = 0;
-            try { c = SceneAnchors().Count; } catch (System.Exception) { }
-            stable = (c > 0 && c == lastCount) ? stable + 1 : 0;
-            lastCount = c;
-        }
-        try
-        {
-            foreach (var a in SceneAnchors()) oldAnchors.Add(AnchorKey(a));
-            Note("salas antiguas guardadas en las gafas: " + oldAnchors.Count + " elementos (se ignoran)");
-        }
-        catch (System.Exception e) { Note("ERROR salas antiguas: " + e.Message); }
-        yield return SendLog();
-        try { RequestMetaScan(); } catch (System.Exception e) { Note("ERROR escaneo de Meta: " + e.Message); }
-    }
-
-    // Elementos de la sala de Meta que ya existían al abrir la app: no se envían
-    readonly HashSet<string> oldAnchors = new HashSet<string>();
-    int oldSkipped;
-
-    static string AnchorKey(MonoBehaviour a)
-    {
-        try
-        {
-            object anc = Member(a, "Anchor");
-            object id = anc != null ? Member(anc, "Uuid") : null;
-            if (id != null && id.ToString() != System.Guid.Empty.ToString()) return id.ToString();
-        }
-        catch (System.Exception) { }
-        Vector3 p = a.transform.position;
-        object lab = Member(a, "Label");
-        return (lab != null ? lab.ToString() : "?") + "@" + Mathf.RoundToInt(p.x * 50) + "," + Mathf.RoundToInt(p.y * 50) + "," + Mathf.RoundToInt(p.z * 50);
     }
 
     void ResetScan()
@@ -584,7 +544,7 @@ public class MiceScan : MonoBehaviour
         string s = (roomName.Length > 0 ? "Sala: " + roomName : "Sala sin nombre (A o X: ponerle nombre)") + "\n"
                  + "Camina por toda la sala mirando a las paredes\n"
                  + "Suelo visto: " + m2.ToString("0") + " m2 · paredes: " + (walls * Cell).ToString("0") + " m · fotos: " + photos.Count + (cam == null ? " (sin cámara)" : "") + "\n"
-                 + "Sala nueva de Meta: " + (sceneCount > 0 ? sceneWalls + " paredes, " + sceneFurniture + " muebles" : "ninguna (botón lateral: escanearla)") + (oldSkipped > 0 ? " · " + oldSkipped + " elementos antiguos ignorados" : "") + "\n"
+                 + "Sala anotada por las gafas: " + (sceneCount > 0 ? sceneWalls + " paredes, " + sceneFurniture + " muebles" : "ninguna (botón lateral: escanearla)") + "\n"
                  + "Gatillo: terminar y subir · B/Y: empezar de nuevo · A/X: nombre · Lateral: escaneo de Meta";
         return status.Length > 0 ? s + "\n" + status : s;
     }
@@ -766,10 +726,9 @@ public class MiceScan : MonoBehaviour
     void CountScene()
     {
         var hist = new Dictionary<string, int>();
-        int walls = 0, furn = 0, n = 0, skipped = 0;
+        int walls = 0, furn = 0, n = 0;
         foreach (var a in SceneAnchors())
         {
-            if (oldAnchors.Contains(AnchorKey(a))) { skipped++; continue; }
             n++;
             object lab = Member(a, "Label");
             string l = lab != null ? lab.ToString() : "?";
@@ -777,7 +736,7 @@ public class MiceScan : MonoBehaviour
             if (l.Contains("WALL_FACE")) walls++;
             else if (Member(a, "VolumeBounds") is Bounds) furn++;
         }
-        sceneCount = n; sceneWalls = walls; sceneFurniture = furn; oldSkipped = skipped;
+        sceneCount = n; sceneWalls = walls; sceneFurniture = furn;
         var sb = new StringBuilder();
         foreach (var kv in hist) sb.Append(kv.Key).Append(':').Append(kv.Value).Append(' ');
         sceneLabels = sb.ToString();
@@ -795,7 +754,6 @@ public class MiceScan : MonoBehaviour
             object lab = Member(a, "Label");
             string l = lab != null ? lab.ToString() : "OTHER";
             if (l.Contains("GLOBAL_MESH")) continue;
-            if (oldAnchors.Contains(AnchorKey(a))) continue;
             Transform parent = a.transform.parent != null ? a.transform.parent : a.transform;
             int room; if (!rooms.TryGetValue(parent, out room)) { room = rooms.Count; rooms[parent] = room; }
             Vector3 p = a.transform.position; Quaternion q = a.transform.rotation;
