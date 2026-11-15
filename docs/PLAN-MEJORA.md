@@ -20,6 +20,16 @@ No se ha podido probar: la app de las gafas v6–v8 en el dispositivo, las fotos
 - **Salones grandes.** Por encima de unos 1.200 m² de suelo visto, la importación fallaba. Probado ahora con 50 × 30 m.
 - **App de las gafas v8.** Una sola petición de permisos (antes la de cámara podía perderse), sin reintentos de foto en cada fotograma, la recarga de la sala no reabre el escaneo de Meta, y los permisos de cámara se escriben en el manifiesto sin depender de una pieza que podía no compilar.
 
+## Actualización del 15 de noviembre (prueba real en Quest 3S, escaneos 635310 y 358844)
+
+- **Medidas:** el usuario las ha contrastado en la sala y son aproximadamente correctas (criterio acordado: unos 20 cm).
+- **Sala de Meta nueva:** tras borrar el historial del espacio físico de las gafas solo queda la sala escaneada.
+- **Salas no rectangulares:** la web perdía paredes, puertas y ventanas; ahora usa toda la habitación de Meta (17 paredes, 5 puertas y 3 ventanas en el caso real).
+- **Fotos:** funcionan con el componente PassthroughCameraAccess (v10); 28 fotos en color con la posición y la calibración de la cámara.
+- **Paredes con foto:** cada pared se pinta proyectando las fotos; comprobado dibujando las puertas y cuadros de Meta sobre las fotos.
+- **Muebles:** Meta tiene pocas etiquetas; se afinan por tamaño y se corrigen con «Convertir en…». Colorearlos con las fotos se probó y se descartó: tomaba el color del suelo.
+- **Pendiente:** el nombre de la sala desde el teclado de las gafas llega vacío.
+
 ## Estado por áreas
 
 - **Diseño de eventos en la web** (montajes, programa por fases, aforo, accesibilidad, exportaciones): sólido. Es la parte más probada.
