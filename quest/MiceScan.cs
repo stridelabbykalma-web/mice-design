@@ -870,7 +870,8 @@ public class MiceScan : MonoBehaviour
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
         string[] perms = { "horizonos.permission.HEADSET_CAMERA", "android.permission.CAMERA" };
-        float until = Time.time + 8f;
+        // Hasta 60 s: el aviso de permiso puede tardar en contestarse
+        float until = Time.time + 60f;
         while (Time.time < until)
         {
             bool all = true;
