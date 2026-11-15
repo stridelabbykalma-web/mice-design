@@ -732,8 +732,19 @@ function ScanCodeImport() {
     setMsg('');
     try {
       const r = importScan(await rpc<unknown>('scan_take', { p_code: code }), height);
-      const scanPhotos = await fetchScanPhotos(code, r);
-      updateSpace({ width: r.width, depth: r.depth, height: r.height, outline: r.outline, method: 'fotogrametria', scanPhotos: scanPhotos.length ? scanPhotos : undefined, ...(r.name ? { name: r.name } : {}) });
+      const { scanPhotos, edgePhotos, wallPhotos } = await fetchScanPhotos(code, r, setMsg);
+      updateSpace({
+        width: r.width,
+        depth: r.depth,
+        height: r.height,
+        outline: r.outline,
+        method: 'fotogrametria',
+        scanPhotos: scanPhotos.length ? scanPhotos : undefined,
+        edgePhotos,
+        wallPhotos,
+        ...(edgePhotos || wallPhotos ? { showWalls: true } : {}),
+        ...(r.name ? { name: r.name } : {}),
+      });
       addItems([...r.items.map(({ id: _id, ...it }) => it), ...r.fixed], ['puerta', 'salida', 'ventana', 'tabique', 'obstaculo']);
       setMsg(r.summary);
       setCode('');

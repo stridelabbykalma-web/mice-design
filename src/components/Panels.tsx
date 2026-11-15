@@ -417,6 +417,22 @@ function LayoutIcon({ type }: { type: LayoutType }) {
 
 // ===================== Propiedades del elemento seleccionado =====================
 
+/** Lo que puede ser un mueble que las gafas no han identificado bien (se conservan sus medidas). */
+const CONVERT: { type: string; label: string }[] = [
+  { type: 'sofa', label: 'Sofá' },
+  { type: 'butaca', label: 'Butaca o sillón' },
+  { type: 'silla', label: 'Silla' },
+  { type: 'mesa-imperial', label: 'Mesa' },
+  { type: 'mesa-coctel', label: 'Mesa alta o de cóctel' },
+  { type: 'planta', label: 'Planta' },
+  { type: 'obstaculo', label: 'Armario o estantería' },
+  { type: 'obstaculo', label: 'Cómoda o aparador' },
+  { type: 'obstaculo', label: 'Chimenea' },
+  { type: 'obstaculo', label: 'Televisor' },
+  { type: 'obstaculo', label: 'Cama' },
+  { type: 'obstaculo', label: 'Mueble fijo' },
+];
+
 export function PropertiesPanel() {
   const project = useStore((s) => s.project)!;
   const selection = useStore((s) => s.selection);
@@ -475,6 +491,24 @@ export function PropertiesPanel() {
           Eliminar
         </button>
       </div>
+      {items.every((i) => i.label || i.type === 'obstaculo') && (
+        <Field label="Convertir en…">
+          <select
+            value=""
+            onChange={(e) => {
+              const opt = CONVERT.find((o) => o.type + '|' + o.label === e.target.value);
+              if (opt) set(() => ({ type: opt.type, label: opt.label, ...(opt.type.startsWith('mesa') ? { chairs: 0 } : {}) }));
+            }}
+          >
+            <option value="">{first.label ?? 'Elige qué es…'}</option>
+            {CONVERT.map((o) => (
+              <option key={o.type + o.label} value={o.type + '|' + o.label}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
       {sameType && def?.resizable && (
         <div className="grid3">
           <Field label="Ancho">

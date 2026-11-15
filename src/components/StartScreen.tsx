@@ -63,9 +63,9 @@ function ScanCodeStart({ hotel, onDone }: { hotel: string; onDone: () => void })
     try {
       const r = importScan(await rpc<unknown>('scan_take', { p_code: code }));
       setMsg('Sala recibida. Trayendo las fotos…');
-      const scanPhotos = await fetchScanPhotos(code, r);
+      const { scanPhotos, edgePhotos, wallPhotos } = await fetchScanPhotos(code, r, setMsg);
       const room = roomName.trim() || r.name?.trim() || `Sala escaneada el ${new Date().toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
-      const space = { ...blankSpace('fotogrametria', room, r.width, r.depth, r.height), outline: r.outline, ...(scanPhotos.length ? { scanPhotos } : {}) };
+      const space = { ...blankSpace('fotogrametria', room, r.width, r.depth, r.height), outline: r.outline, ...(scanPhotos.length ? { scanPhotos } : {}), ...(edgePhotos ? { edgePhotos, showWalls: true } : {}), ...(wallPhotos ? { wallPhotos, showWalls: true } : {}) };
       const p = newProject(space, `Evento en ${room}`, hotel);
       p.items = [...r.items.map(({ id: _id, ...it }) => it), ...r.fixed].map((it) => ({ ...it, id: uid('i_') }));
       await db.saveProject(p);

@@ -107,6 +107,21 @@ const FURNITURE: Record<string, { type: string; label: string; chairs?: number }
   other: { type: 'obstaculo', label: 'Mueble' },
 };
 
+/**
+ * Meta tiene pocas etiquetas (un sillón o una butaca salen como «sofá», una mesita baja como
+ * «mesa»): con las medidas se afina el nombre.
+ */
+function refine(label: string, b: { w: number; d: number; h: number }, m: { type: string; label: string; chairs?: number }) {
+  const long = Math.max(b.w, b.d);
+  const short = Math.min(b.w, b.d);
+  if (label === 'couch' && long < 1.25) return { type: 'butaca', label: 'Butaca o sillón' };
+  if (label === 'table' && b.h < 0.55) return { ...m, label: 'Mesa baja' };
+  if (label === 'table' && long >= 1.4 && b.h >= 0.65) return { ...m, label: 'Mesa de comedor' };
+  if (label === 'storage' && short < 0.45 && b.h > 1.4) return { ...m, label: 'Estantería' };
+  if (label === 'storage' && b.h <= 1.4) return { ...m, label: 'Cómoda o aparador' };
+  return m;
+}
+
 export function importScan(json: unknown, fallbackHeight = 3): ScanResult {
   const f = json as ScanFile;
   if (!f || f.format !== 'mice-roomplan') throw new Error('No es un escaneo de MICE Design.');
@@ -147,14 +162,15 @@ export function importScan(json: unknown, fallbackHeight = 3): ScanResult {
       const r = parseRoomPlan(planesToRoomPlan(planes));
       const metaBoxes = planeObstacles(planes);
       const fixed = placeObstacles(r.frame, metaBoxes).map((it, i) => {
-        const m = FURNITURE[metaBoxes[i].label] ?? FURNITURE.other;
+        const m = refine(metaBoxes[i].label, metaBoxes[i], FURNITURE[metaBoxes[i].label] ?? FURNITURE.other);
         return { ...it, type: m.type, label: m.label, ...(m.chairs !== undefined ? { chairs: m.chairs } : {}) };
       });
       // Lo que ha visto el escaneo caminando y Meta no tiene anotado se añade como obstáculo
       let extra = 0;
       if (walk && walkOutline) {
         const more = walk.obstacles(walkOutline).filter((o) => !metaBoxes.some((b) => Math.hypot(b.x - o.x, b.z - o.z) < Math.max(b.w, b.d) / 2 + Math.max(o.w, o.d) / 2));
-        const inRoom = placeObstacles(r.frame, more).filter((it) => Math.abs(it.x) < r.width / 2 && Math.abs(it.z) < r.depth / 2);
+        // Lo que llega hasta el techo suele ser cortina, lámpara colgada o parte de una pared, no un mueble
+        const inRoom = placeObstacles(r.frame, more.filter((o) => o.h < 2)).filter((it) => Math.abs(it.x) < r.width / 2 && Math.abs(it.z) < r.depth / 2);
         extra = inRoom.length;
         fixed.push(...inRoom.map((it) => ({ ...it, label: 'Sin identificar' })));
       }

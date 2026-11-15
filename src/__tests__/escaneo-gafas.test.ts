@@ -211,7 +211,7 @@ describe('medir la sala con las gafas', () => {
     expect([sofa[0].w, sofa[0].d].sort()).toEqual([0.9, 2]);
     expect(sofa[0].h).toBeCloseTo(0.8, 1);
     expect(sofa[0].label).toBe('Sofá');
-    const mesa = r.fixed.find((i) => i.label === 'Mesa')!;
+    const mesa = r.fixed.find((i) => i.label === 'Mesa baja')!;
     expect(mesa.chairs).toBe(0);
     expect(mesa.h).toBeCloseTo(0.45, 1);
     expect(r.fixed).toHaveLength(2);

@@ -31,7 +31,8 @@ export interface RoomPlanResult {
   summary: string;
   /** De dónde sale la sala en las coordenadas de la medición: giro (rad) y centro. El modelo
    *  se lleva a la medición girándolo θ alrededor de Y y desplazándolo (x, z). */
-  frame: { theta: number; x: number; z: number };
+  /** Giro y centro de la sala en la medición original; y = altura del suelo en ella. */
+  frame: { theta: number; x: number; z: number; y?: number };
 }
 
 const pos = (t: number[]) => ({ x: t[12], y: t[13], z: t[14] });
@@ -142,7 +143,7 @@ export function parseRoomPlan(json: unknown): RoomPlanResult {
   // Centro de la sala en la medición original (giro inverso)
   const ct = Math.cos(theta);
   const st = Math.sin(theta);
-  const frame = { theta, x: cx * ct - cz * st, z: cx * st + cz * ct };
+  const frame = { theta, x: cx * ct - cz * st, z: cx * st + cz * ct, y: floorY };
   return { outline, width: r2(width), depth: r2(depth), height: r2(height), items, summary, frame };
 }
 
