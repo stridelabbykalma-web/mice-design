@@ -9,6 +9,7 @@ import { findDef, footprint, itemDims } from '../catalog';
 import { sceneApi } from './sceneApi';
 import { ChairInstances, InstancedChairsContext } from './ChairInstances';
 import { XRBridge } from './XRBridge';
+import { XREditor } from './XREditor';
 import { alignSplat, snapToCorner } from '../lib/align';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { useXR } from '../lib/xr';
@@ -1172,6 +1173,7 @@ export default function Scene() {
         <Interaction wrap={wrap} />
         <ApiBridge root={root} />
         <XRBridge root={root} />
+        <XREditor root={root} />
         {xrMode && <XrEnvironment />}
       </Canvas>
       {splat === 'loading' && <div className="scene-status">Cargando la captura fotorrealista…</div>}

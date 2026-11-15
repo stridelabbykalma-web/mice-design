@@ -245,6 +245,8 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
     };
     const onSelect = (c: THREE.Object3D) => () => {
       active.current = c;
+      // Con el editor de las gafas activo, el gatillo es suyo (coger y soltar muebles)
+      if (useXR.getState().editing) return;
       const p = hit(c);
       const st = useXR.getState();
       const sp = useStore.getState().project?.space;
@@ -506,7 +508,8 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
         const pose = frame.getPose(anchor.current.anchorSpace, ref);
         if (pose) {
           const mtx = new THREE.Matrix4().fromArray(pose.transform.matrix);
-          mtx.decompose(g.position, g.quaternion, g.scale);
+          // Una pose no válida dejaría el montaje fuera de la vista
+          if (!mtx.elements.some((v) => !Number.isFinite(v))) mtx.decompose(g.position, g.quaternion, g.scale);
         }
       }
       if (st.task === 'medir' && st.step === 5) depth.track(frame, ref);
@@ -669,7 +672,7 @@ export function XRBridge({ root }: { root: React.RefObject<THREE.Group> }) {
     const origin = new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
     const dir = new THREE.Vector3(0, 0, -1).transformDirection(c.matrixWorld);
     const p = new THREE.Ray(origin, dir).intersectPlane(floor, new THREE.Vector3());
-    reticle.visible = !!p && (mode === 'vr' || st.step !== 2);
+    reticle.visible = !!p && !st.editing && (mode === 'vr' || st.step !== 2);
     if (p) reticle.position.copy(p).setY(0.005);
     // El panel sigue la mirada a 1,2 m, algo por debajo de los ojos
     if (panel.mesh.visible) {

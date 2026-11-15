@@ -20,9 +20,11 @@ interface XrState {
   step: 0 | 1 | 2 | 3 | 4 | 5;
   /** Mensaje que se muestra dentro de las gafas. */
   message: string;
+  /** Editando el montaje desde las gafas (paleta abierta o moviendo un mueble). */
+  editing: boolean;
 }
 
-export const useXR = create<XrState>(() => ({ supportsAR: false, supportsVR: false, mode: null, task: 'ver', step: 0, message: '' }));
+export const useXR = create<XrState>(() => ({ supportsAR: false, supportsVR: false, mode: null, task: 'ver', step: 0, message: '', editing: false }));
 
 /** Comprueba qué modos admite este navegador (solo navegadores con WebXR, como el de Quest). */
 export async function detectXR() {
