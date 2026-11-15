@@ -60,6 +60,18 @@ export interface PhotoTexture {
 
 export type WallSide = 'norte' | 'sur' | 'oeste' | 'este';
 
+/** Foto de la sala hecha por las gafas durante el escaneo. */
+export interface ScanPhoto {
+  assetId: string;
+  /** Posición en planta (metros, coordenadas de la sala). */
+  x: number;
+  z: number;
+  /** Rumbo en grados: 0 = hacia el frente (z negativa), 90 = hacia la derecha (x positiva). */
+  heading: number;
+  /** Tramo de pared al que mira (índice del contorno de la sala), si se ha podido calcular. */
+  wall?: number;
+}
+
 export interface Space {
   method: SpaceMethod;
   name: string;
@@ -82,6 +94,8 @@ export interface Space {
   outline?: { x: number; z: number }[];
   /** Fotos de pared por tramo del contorno ('e0', 'e1'…) en salas no rectangulares. */
   edgePhotos?: Record<string, PhotoTexture>;
+  /** Fotos tomadas por las gafas al escanear: dónde se hicieron y hacia dónde miraban. */
+  scanPhotos?: ScanPhoto[];
   floorPhoto?: PhotoTexture;
   ceilingPhoto?: PhotoTexture;
   videoAssetId?: string;

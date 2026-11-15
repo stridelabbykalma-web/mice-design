@@ -1,3 +1,4 @@
+import { fetchScanPhotos, wallName } from '../lib/scanPhotos';
 import { importScan } from '../lib/scanImport';
 import { rpc } from '../lib/cloud';
 import { HeadsetMeasure } from './XrButton';
@@ -89,6 +90,7 @@ export default function SpacePanel() {
         {!space.outdoor && <ShapeEditor />}
         <SaveRoom />
         <HeadsetMeasure viewer={readOnly} />
+        <ScanPhotosGallery />
         <ScanCodeImport />
         <RoomPlanImport />
         <div className="callout">
@@ -663,6 +665,60 @@ function RealSurfaces() {
   );
 }
 
+/** Fotos del escaneo de las gafas: para saber en el ordenador qué pared es cada una. */
+function ScanPhotosGallery() {
+  const space = useStore((s) => s.project!.space);
+  const photos = space.scanPhotos ?? [];
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [open, setOpen] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    Promise.all(photos.map(async (p) => [p.assetId, await assetUrl(p.assetId)] as const)).then((pairs) => {
+      if (alive) setUrls(Object.fromEntries(pairs.filter((x) => x[1]) as [string, string][]));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [photos]);
+  if (!photos.length) return null;
+  const poly = !!space.outline && space.outline.length >= 3;
+  const cur = open !== null ? photos[open] : null;
+  return (
+    <div className="callout">
+      <strong>📷 Fotos del escaneo ({photos.length})</strong>
+      <p className="hint">
+        Hechas por las gafas al escanear. Cada una indica a qué pared mira; en la vista <strong>Planta</strong> verás su número donde se hizo y una flecha hacia donde
+        miraba.
+      </p>
+      <div className="scan-photos">
+        {photos.map((p, i) => (
+          <button key={p.assetId} className="scan-photo" onClick={() => setOpen(i)} title={`Foto ${i + 1}: ${wallName(p.wall, poly)}`}>
+            {urls[p.assetId] ? <img src={urls[p.assetId]} alt={`Foto ${i + 1}`} /> : <span>…</span>}
+            <span className="scan-photo-cap">
+              {i + 1} · {wallName(p.wall, poly)}
+            </span>
+          </button>
+        ))}
+      </div>
+      {cur && (
+        <div className="order-overlay" role="dialog" aria-label="Foto del escaneo" onClick={() => setOpen(null)}>
+          <article className="compare-sheet scan-photo-big" onClick={(e) => e.stopPropagation()}>
+            <div className="row gap">
+              <strong>
+                Foto {open! + 1} · mirando a la {wallName(cur.wall, poly)}
+              </strong>
+              <button className="btn small" onClick={() => setOpen(null)}>
+                Cerrar
+              </button>
+            </div>
+            {urls[cur.assetId] && <img src={urls[cur.assetId]} alt={`Foto ${open! + 1}`} />}
+          </article>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Recoge con su código el escaneo hecho con la app nativa de las gafas (MICE Scan). */
 function ScanCodeImport() {
   const updateSpace = useStore((s) => s.updateSpace);
@@ -676,7 +732,8 @@ function ScanCodeImport() {
     setMsg('');
     try {
       const r = importScan(await rpc<unknown>('scan_take', { p_code: code }), height);
-      updateSpace({ width: r.width, depth: r.depth, height: r.height, outline: r.outline, method: 'fotogrametria', ...(r.name ? { name: r.name } : {}) });
+      const scanPhotos = await fetchScanPhotos(code, r);
+      updateSpace({ width: r.width, depth: r.depth, height: r.height, outline: r.outline, method: 'fotogrametria', scanPhotos: scanPhotos.length ? scanPhotos : undefined, ...(r.name ? { name: r.name } : {}) });
       addItems([...r.items.map(({ id: _id, ...it }) => it), ...r.fixed], ['puerta', 'salida', 'ventana', 'tabique', 'obstaculo']);
       setMsg(r.summary);
       setCode('');

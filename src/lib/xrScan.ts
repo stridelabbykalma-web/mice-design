@@ -290,7 +290,10 @@ export function currentRoomPlanes(planes: ScanPlane[], head: P): ScanPlane[] {
       const m = mid(pl);
       // Verticales (paredes, puertas, ventanas): justo en el borde de este suelo (la pared de la
       // sala contigua queda al otro lado del tabique, a más de 12 cm). El resto, encima de él.
-      return pl.orientation === 'vertical' ? distToPoly(m, poly) < 0.2 : near(m, 0.3);
+      // Puertas y ventanas: las gafas suelen anotarlas en la habitación de al lado (es el mismo
+      // hueco visto desde el otro lado del tabique), así que se admiten hasta 50 cm
+      if (pl.orientation === 'vertical') return distToPoly(m, poly) < (pl.label === 'door' || pl.label === 'window' ? 0.5 : 0.2);
+      return near(m, 0.3);
     }), (m) => distToPoly(m, poly));
   }
   const walls = planes.filter((p) => p.orientation === 'vertical' && p.label === 'wall' && p.points.length >= 3);

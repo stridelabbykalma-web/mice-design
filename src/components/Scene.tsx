@@ -534,6 +534,15 @@ function Floor({ space, view }: { space: Space; view: string }) {
           <Html zIndexRange={[10, 0]} position={[0, 0, -D / 2 - 1.4]} center className="dim-label north">
             {floorLang === 'en' ? '▲ Front / stage' : '▲ Frente / escenario'}
           </Html>
+          {/* Fotos del escaneo de las gafas: número donde se hizo y flecha hacia donde miraba */}
+          {(space.scanPhotos ?? []).map((ph, i) => (
+            <Html zIndexRange={[11, 0]} key={ph.assetId} position={[ph.x, 0, ph.z]} center className="photo-pin" title={`Foto ${i + 1}`}>
+              <span className="photo-pin-arrow" style={{ transform: `rotate(${ph.heading}deg)` }}>
+                ↑
+              </span>
+              <span>📷{i + 1}</span>
+            </Html>
+          ))}
         </>
       )}
     </>

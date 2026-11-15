@@ -192,6 +192,13 @@ public class MiceScan : MonoBehaviour
             var names = new StringBuilder();
             foreach (var fld in cfgType.GetFields(All))
             {
+                // Teclado de las gafas (para poner nombre a la sala)
+                if (fld.Name.ToLowerInvariant().IndexOf("keyboard") >= 0 && fld.FieldType == typeof(bool))
+                {
+                    names.Append(fld.Name).Append('=').Append(fld.GetValue(cfg)).Append("; ");
+                    if (!(bool)fld.GetValue(cfg)) { fld.SetValue(cfg, true); changed = true; }
+                    continue;
+                }
                 if (fld.Name.ToLowerInvariant().IndexOf("boundary") < 0) continue;
                 found = true;
                 names.Append(fld.Name).Append('=').Append(fld.GetValue(cfg)).Append("; ");
@@ -207,7 +214,7 @@ public class MiceScan : MonoBehaviour
                 if (commit != null) commit.Invoke(null, new object[] { cfg });
                 else UnityEditor.EditorUtility.SetDirty((Object)cfg);
                 UnityEditor.AssetDatabase.SaveAssets();
-                Debug.Log("[MiceScan] Activado Boundary Visibility Support (límite de seguridad ocultable). Antes: " + names);
+                Debug.Log("[MiceScan] Configuración de Meta actualizada (límite ocultable, teclado de las gafas). Antes: " + names);
             }
             else Debug.Log("[MiceScan] Boundary Visibility Support: " + (found ? "ya configurado · " + names : "no hay ninguna opción de límite en la configuración"));
         }
@@ -338,7 +345,7 @@ public class MiceScan : MonoBehaviour
     // alguna bloquea la app, la última línea recibida dice cuál ha sido.
     IEnumerator Start()
     {
-        Note("MiceScan v8 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
+        Note("MiceScan v9 · Unity " + Application.unityVersion + " · " + SystemInfo.deviceModel + " · " + SystemInfo.graphicsDeviceType);
         try
         {
             var rig = FindFirstObjectByType<OVRCameraRig>();
@@ -483,8 +490,23 @@ public class MiceScan : MonoBehaviour
             try { CountScene(); } catch (System.Exception e) { if (sceneErrors++ < 2) Note("ERROR escena: " + e.Message); }
             if (reloadScene > 0 && Time.time > reloadScene) { reloadScene = 0; try { ReloadScene(); } catch (System.Exception e) { Note("ERROR recarga de escena: " + e.Message); } }
         }
-        if (dots != null && (OVRInput.GetDown(OVRInput.Button.One) || OVRInput.GetDown(OVRInput.Button.Three)))
-            dots.gameObject.SetActive(!dots.gameObject.activeSelf);
+        // A/X: nombre de la sala (teclado de las gafas)
+        if (keyboard == null && (OVRInput.GetDown(OVRInput.Button.One) || OVRInput.GetDown(OVRInput.Button.Three)))
+        {
+            try { keyboard = TouchScreenKeyboard.Open(roomName, TouchScreenKeyboardType.Default, false, false, false, false, "Nombre de la sala"); }
+            catch (System.Exception e) { Note("ERROR teclado: " + e.Message); status = "No se pudo abrir el teclado de las gafas"; }
+            if (keyboard == null) status = "Este proyecto no tiene activado el teclado de las gafas";
+        }
+        if (keyboard != null)
+        {
+            roomName = keyboard.text ?? roomName;
+            if (keyboard.status != TouchScreenKeyboard.Status.Visible)
+            {
+                if (keyboard.status == TouchScreenKeyboard.Status.Done) Note("nombre de la sala: " + roomName);
+                keyboard = null;
+            }
+            return;
+        }
         if (OVRInput.GetDown(OVRInput.Button.PrimaryIndexTrigger) || OVRInput.GetDown(OVRInput.Button.SecondaryIndexTrigger))
         {
             if (wall.Count > 40) StartCoroutine(Upload());
@@ -509,6 +531,8 @@ public class MiceScan : MonoBehaviour
         }
     }
     int readErrors;
+    TouchScreenKeyboard keyboard;
+    string roomName = "";
 
     string Message()
     {
@@ -517,10 +541,11 @@ public class MiceScan : MonoBehaviour
         foreach (var kv in free) if (kv.Value >= MinFrames) m2 += Cell * Cell;
         int walls = 0;
         foreach (var kv in wall) if (kv.Value >= MinFrames) walls++;
-        string s = "MICE Scan — camina por toda la sala mirando a las paredes\n"
+        string s = (roomName.Length > 0 ? "Sala: " + roomName : "Sala sin nombre (A o X: ponerle nombre)") + "\n"
+                 + "Camina por toda la sala mirando a las paredes\n"
                  + "Suelo visto: " + m2.ToString("0") + " m2 · paredes: " + (walls * Cell).ToString("0") + " m · fotos: " + photos.Count + (cam == null ? " (sin cámara)" : "") + "\n"
                  + "Sala anotada por las gafas: " + (sceneCount > 0 ? sceneWalls + " paredes, " + sceneFurniture + " muebles" : "ninguna (botón lateral: escanearla)") + "\n"
-                 + "Gatillo: terminar y subir · B/Y: empezar de nuevo · A/X: puntos · Lateral: escaneo de Meta";
+                 + "Gatillo: terminar y subir · B/Y: empezar de nuevo · A/X: nombre · Lateral: escaneo de Meta";
         return status.Length > 0 ? s + "\n" + status : s;
     }
 
@@ -610,7 +635,9 @@ public class MiceScan : MonoBehaviour
     {
         var inv = CultureInfo.InvariantCulture;
         var sb = new StringBuilder(1 << 16);
-        sb.Append("{\"format\":\"mice-roomplan\",\"version\":2,\"device\":\"quest\",\"walls\":[],\"walk\":{\"cell\":0.1,\"frames\":").Append(frames);
+        sb.Append("{\"format\":\"mice-roomplan\",\"version\":2,\"device\":\"quest\",");
+        if (roomName.Trim().Length > 0) sb.Append("\"name\":\"").Append(Esc(roomName.Trim())).Append("\",");
+        sb.Append("\"walls\":[],\"walk\":{\"cell\":0.1,\"frames\":").Append(frames);
         float ch = Ceiling();
         if (ch > 0) sb.Append(",\"ceiling\":").Append(ch.ToString("0.00", inv));
 
@@ -811,7 +838,7 @@ public class MiceScan : MonoBehaviour
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
         string[] perms = { "horizonos.permission.HEADSET_CAMERA", "android.permission.CAMERA" };
-        float until = Time.time + 20f;
+        float until = Time.time + 8f;
         while (Time.time < until)
         {
             bool all = true;
@@ -912,7 +939,12 @@ public class MiceScan : MonoBehaviour
             + ",\"rot\":[" + q.x.ToString("0.#####", inv) + "," + q.y.ToString("0.#####", inv) + "," + q.z.ToString("0.#####", inv) + "," + q.w.ToString("0.#####", inv) + "]"
             + ",\"mirror\":" + (cam.videoVerticallyMirrored ? "true" : "false") + ",\"angle\":" + cam.videoRotationAngle + ",\"t\":" + Time.time.ToString("0.0", inv) + "}");
         photos.Add(jpg);
-        if (photos.Count == 1) Note("cámara: primera foto " + jpg.Length + " bytes");
+        if (photos.Count == 1)
+        {
+            long sum = 0;
+            for (int i = 0; i < camBuf.Length; i += 97) sum += camBuf[i].r + camBuf[i].g + camBuf[i].b;
+            Note("cámara: primera foto " + jpg.Length + " bytes · brillo medio " + (sum / (3 * (camBuf.Length / 97 + 1))) + " de 255");
+        }
     }
 
     IEnumerator Upload()

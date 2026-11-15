@@ -1,3 +1,4 @@
+import { fetchScanPhotos } from '../lib/scanPhotos';
 import { importScan } from '../lib/scanImport';
 import { rpc } from '../lib/cloud';
 import { uid } from '../lib/db';
@@ -53,6 +54,7 @@ function ScanCodeStart({ hotel, onDone }: { hotel: string; onDone: () => void })
   const openProject = useStore((s) => s.openProject);
   // Enlace directo: …/#s-123456 deja el código ya escrito
   const [code, setCode] = useState(() => location.hash.match(/^#s-(\d{6})$/)?.[1] ?? '');
+  const [roomName, setRoomName] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const take = async () => {
@@ -60,8 +62,10 @@ function ScanCodeStart({ hotel, onDone }: { hotel: string; onDone: () => void })
     setMsg('');
     try {
       const r = importScan(await rpc<unknown>('scan_take', { p_code: code }));
-      const room = r.name?.trim() || `Sala escaneada el ${new Date().toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
-      const space = { ...blankSpace('fotogrametria', room, r.width, r.depth, r.height), outline: r.outline };
+      setMsg('Sala recibida. Trayendo las fotos…');
+      const scanPhotos = await fetchScanPhotos(code, r);
+      const room = roomName.trim() || r.name?.trim() || `Sala escaneada el ${new Date().toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
+      const space = { ...blankSpace('fotogrametria', room, r.width, r.depth, r.height), outline: r.outline, ...(scanPhotos.length ? { scanPhotos } : {}) };
       const p = newProject(space, `Evento en ${room}`, hotel);
       p.items = [...r.items.map(({ id: _id, ...it }) => it), ...r.fixed].map((it) => ({ ...it, id: uid('i_') }));
       await db.saveProject(p);
@@ -78,7 +82,8 @@ function ScanCodeStart({ hotel, onDone }: { hotel: string; onDone: () => void })
     <div className="callout">
       <strong>🥽 Traer una sala escaneada con la app de las gafas (MICE Scan)</strong>
       <p className="hint">Escribe el código de 6 cifras que muestran las gafas al terminar el escaneo. Se crea la sala con su forma, su altura y sus muebles.</p>
-      <div className="row gap">
+      <div className="row gap wrap">
+        <input placeholder="Nombre de la sala (p. ej. Salón Alhambra)" value={roomName} onChange={(e) => setRoomName(e.target.value)} style={{ minWidth: 220, flex: 1 }} />
         <input inputMode="numeric" placeholder="Código de 6 cifras" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} style={{ width: 170, fontSize: 18 }} />
         <button className="btn primary" disabled={busy || code.length !== 6} onClick={take}>
           {busy ? 'Trayendo…' : 'Crear la sala'}

@@ -1,9 +1,10 @@
 // Importa un escaneo de sala (archivo .mice-room.json o escaneo de la app nativa de las gafas)
 // y lo convierte en medidas, forma, puertas, ventanas y obstáculos del proyecto.
 
-import type { Item } from '../types';
+import type { Item, ScanPhoto } from '../types';
 import { parseRoomPlan, type RoomPlanFile, type RoomPlanResult } from './roomplan';
 import { WalkScan, type Obstacle, type WalkGrids } from './walkScan';
+import { pointInPolygon } from './outline';
 import { cornersToRoomPlan, currentRoomPlanes, planeObstacles, planesToRoomPlan, type ScanPlane } from './xrScan';
 
 /** Un escaneo tal como llega: paredes medidas y, si viene del escaneo caminando, sus rejillas. */
@@ -115,8 +116,21 @@ export function importScan(json: unknown, fallbackHeight = 3): ScanResult {
   // 1. Si las gafas tienen la sala anotada (escaneo de Meta), manda eso: paredes, puertas,
   //    ventanas y muebles con su nombre. Se usa la habitación por la que se ha caminado.
   if (f.scene?.length) {
-    const head = f.walk && f.walk.path.length >= 2 ? { x: f.walk.path[Math.floor(f.walk.path.length / 4) * 2] / 100, z: f.walk.path[Math.floor(f.walk.path.length / 4) * 2 + 1] / 100 } : { x: 0, z: 0 };
-    const planes = currentRoomPlanes(sceneToPlanes(f.scene), head);
+    const all = sceneToPlanes(f.scene);
+    // La habitación es la del suelo por el que más se ha caminado (si se pasa a otra al final, no cuenta)
+    const path: { x: number; z: number }[] = [];
+    for (let i = 0; f.walk && i + 1 < f.walk.path.length; i += 2) path.push({ x: f.walk.path[i] / 100, z: f.walk.path[i + 1] / 100 });
+    let head = path[0] ?? { x: 0, z: 0 };
+    let most = 0;
+    for (const fl of all.filter((p) => p.label === 'floor')) {
+      const poly = fl.points.map((q) => ({ x: q.x, z: q.z }));
+      const inside = path.filter((q) => pointInPolygon(q, poly));
+      if (inside.length > most) {
+        most = inside.length;
+        head = inside[0];
+      }
+    }
+    const planes = currentRoomPlanes(all, head);
     if (planes.filter((p) => p.label === 'wall').length >= 3) {
       const r = parseRoomPlan(planesToRoomPlan(planes));
       const metaBoxes = planeObstacles(planes);
@@ -146,4 +160,58 @@ export function importScan(json: unknown, fallbackHeight = 3): ScanResult {
     return { ...r, fixed, name: f.name, summary: `${r.summary.replace(' Revisa qué puertas son salidas de emergencia.', '')} · ${fixed.length} muebles u obstáculos. Añade las puertas y salidas.` };
   }
   return { ...parseRoomPlan(f), fixed: [], name: f.name };
+}
+
+/** Datos de una foto tal como los envía la app de las gafas (coordenadas de Unity). */
+export interface PhotoMeta {
+  pos: number[];
+  rot: number[];
+  w?: number;
+  h?: number;
+}
+
+/**
+ * Lleva las fotos a la sala: posición en planta, rumbo y pared a la que miran (la primera que
+ * corta el rayo de la mirada, en el contorno de la sala).
+ */
+export function placePhotos(frame: RoomPlanResult['frame'], outline: { x: number; z: number }[], metas: PhotoMeta[]): Omit<ScanPhoto, 'assetId'>[] {
+  const ct = Math.cos(-frame.theta);
+  const sn = Math.sin(-frame.theta);
+  return metas.map((m) => {
+    // Unity → web: z cambia de signo
+    const wx = m.pos[0];
+    const wz = -m.pos[2];
+    const f = qrot(m.rot, [0, 0, 1]);
+    const fx = f[0];
+    const fz = -f[2];
+    const X = wx - frame.x;
+    const Z = wz - frame.z;
+    const x = X * ct - Z * sn;
+    const z = X * sn + Z * ct;
+    let dx = fx * ct - fz * sn;
+    let dz = fx * sn + fz * ct;
+    const l = Math.hypot(dx, dz) || 1;
+    dx /= l;
+    dz /= l;
+    // Rumbo: 0 = frente (−z), 90 = derecha (+x)
+    const heading = Math.round(((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360);
+    let wall: number | undefined;
+    let best = Infinity;
+    for (let i = 0; i < outline.length; i++) {
+      const a = outline[i];
+      const b = outline[(i + 1) % outline.length];
+      const ex = b.x - a.x;
+      const ez = b.z - a.z;
+      const den = dx * ez - dz * ex;
+      if (Math.abs(den) < 1e-9) continue;
+      const t = ((a.x - x) * ez - (a.z - z) * ex) / den;
+      const u = ((a.x - x) * dz - (a.z - z) * dx) / den;
+      if (t > 0.05 && u >= 0 && u <= 1 && t < best) {
+        best = t;
+        wall = i;
+      }
+    }
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    return { x: r2(x), z: r2(z), heading, wall };
+  });
 }

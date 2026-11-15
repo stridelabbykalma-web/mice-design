@@ -216,4 +216,21 @@ describe('medir la sala con las gafas', () => {
     expect(mesa.h).toBeCloseTo(0.45, 1);
     expect(r.fixed).toHaveLength(2);
   });
+
+  it('fotos del escaneo: posición en la sala y pared a la que miran', async () => {
+    const { placePhotos } = await import('../lib/scanImport');
+    const { rectOutline } = await import('../lib/outline');
+    const outline = rectOutline(6, 4);
+    const frame = { theta: 0, x: 0, z: 0 };
+    // Unity: mirando a +Z de Unity = −z en la web = pared del frente (índice 0)
+    const fwd = [0, 0, 0, 1];
+    // Girada 90° sobre Y en Unity: mira a +X = pared derecha (índice 1)
+    const right = [0, Math.SQRT1_2, 0, Math.SQRT1_2];
+    const r = placePhotos(frame, outline, [
+      { pos: [1, 1.6, -0.5], rot: fwd },
+      { pos: [0, 1.6, 0], rot: right },
+    ]);
+    expect(r[0]).toMatchObject({ x: 1, z: 0.5, wall: 0, heading: 0 });
+    expect(r[1]).toMatchObject({ wall: 1, heading: 90 });
+  });
 });
